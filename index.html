@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>RADIO REPLICANTE | Master Sentinel v10.1</title>
+    <title>RADIO REPLICANTE | Master Sentinel v10.2</title>
 
     <!-- Engine Core -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -11,6 +11,15 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <!-- Firebase Suite -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, collection, query, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        window.FB = { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, doc, setDoc, getDoc, collection, query, onSnapshot, serverTimestamp };
+    </script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;900&family=JetBrains+Mono:wght@700&display=swap');
@@ -25,10 +34,8 @@
         .btn-action:hover { transform: translateY(-3px); filter: brightness(1.2); }
         .btn-action:active { transform: translateY(1px) scale(0.96); }
         .scanline { width: 100%; height: 100%; background: linear-gradient(to bottom, transparent 50%, rgba(6, 78, 59, 0.04) 50%); background-size: 100% 4px; position: fixed; pointer-events: none; z-index: 100; opacity: 0.5; }
-
         .monitor-active { border: 12px solid var(--zena-gold); box-shadow: 0 0 120px rgba(251, 191, 36, 0.25); }
         .monitor-off { border: 12px solid rgba(255,255,255,0.05); filter: brightness(0.3) grayscale(1); }
-
         .play-btn-glow { animation: play-glow 2s infinite; }
         @keyframes play-glow { 0%, 100% { transform: scale(1); box-shadow: 0 0 20px rgba(251, 191, 36, 0.4); } 50% { transform: scale(1.1); box-shadow: 0 0 50px rgba(251, 191, 36, 0.6); } }
     </style>
@@ -46,15 +53,18 @@
 
         function App() {
             const [view, setView] = useState('landing');
-            const [status, setStatus] = useState('SYNCING...');
+            const [status, setStatus] = useState('OFFLINE');
             const [logs, setLogs] = useState([]);
             const [denunce, setDenunce] = useState([]);
-            const [ugoChat, setUgoChat] = useState([{ role: 'bot', text: "Elvio, v10.1 Fuel. Carica la chiave API o Sara resterà muta." }]);
             const [isSpeaking, setIsSpeaking] = useState(false);
             const [isUnlocked, setIsUnlocked] = useState(false);
             const [videoStatus, setVideoStatus] = useState('LOCKED');
-            const [geminiKey, setGeminiKey] = useState(''); // Chiave dinamica per bypassare il blocco "unregistered"
+            const [geminiKey, setGeminiKey] = useState('');
+            const [user, setUser] = useState(null);
+            const [db, setDb] = useState(null);
+
             const videoRef = useRef(null);
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'radioreplicante-master';
 
             const addLog = (msg) => {
                 const time = new Date().toLocaleTimeString();
@@ -62,10 +72,45 @@
                 console.log(`[REPLICANTE] ${msg}`);
             };
 
+            // 1. INIZIALIZZAZIONE FIREBASE E AUTH (REGOLA 3)
             useEffect(() => {
+                const initFirebase = async () => {
+                    const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore } = window.FB;
+                    const config = JSON.parse(__firebase_config);
+                    const app = initializeApp(config);
+                    const auth = getAuth(app);
+                    const firestore = getFirestore(app);
+                    setDb(firestore);
+
+                    const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                    try {
+                        if (token) await signInWithCustomToken(auth, token);
+                        else await signInAnonymously(auth);
+                        addLog("Auth Master completata.");
+                    } catch (e) { addLog("Errore Auth: " + e.message); }
+
+                    onAuthStateChanged(auth, setUser);
+                };
+                initFirebase();
+            }, []);
+
+            // 2. CARICAMENTO CONFIG E SYNC SUPABASE
+            useEffect(() => {
+                if (!user || !db) return;
+
+                const loadFuel = async () => {
+                    const { doc, getDoc } = window.FB;
+                    const configRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'master_config');
+                    const snap = await getDoc(configRef);
+                    if (snap.exists() && snap.data().gemini_key) {
+                        setGeminiKey(snap.data().gemini_key);
+                        addLog("Fuel caricato dal Caveau.");
+                    }
+                };
+                loadFuel();
+
                 const fetchInitial = async () => {
-                    const { data, error } = await supabase.from('mugugni').select('*').order('created_at', { ascending: false });
-                    if (error) addLog(`DB Error: ${error.message}`);
+                    const { data } = await supabase.from('mugugni').select('*').order('created_at', { ascending: false });
                     if (data) setDenunce(data);
                     setStatus('STABLE');
                 };
@@ -73,21 +118,19 @@
 
                 const mugugniSub = supabase.channel('pub-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'mugugni' }, fetchInitial).subscribe();
                 const vocalSub = supabase.channel('vocal-orders').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'vocal_commands' }, p => {
-                    addLog(`Segnale vocale ricevuto: "${p.new.testo}"`);
+                    addLog(`Ordine ricevuto: "${p.new.testo}"`);
                     speak(p.new.testo, "Aoede");
                 }).subscribe();
 
                 return () => { supabase.removeChannel(mugugniSub); supabase.removeChannel(vocalSub); };
-            }, [geminiKey]); // Re-bind se la chiave cambia
+            }, [user, db]);
 
             const speak = async (text, voice = "Kore") => {
-                if (!text) return;
-                if (!geminiKey) { addLog("ERRORE: Manca la benzina (API Key)!"); return; }
-                if (isSpeaking) { addLog("Audio occupato."); return; }
-                if (videoStatus !== 'ON') { addLog("Sblocca il monitor prima!"); return; }
+                if (!text || isSpeaking) return;
+                if (!geminiKey) { addLog("ERRORE: Serbatoio vuoto (No API Key)!"); return; }
 
                 setIsSpeaking(true);
-                addLog(`Tentativo sintesi vocale...`);
+                addLog(`Iniezione segnale vocale...`);
 
                 try {
                     const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${geminiKey}`, {
@@ -100,8 +143,8 @@
                     });
 
                     if (!resp.ok) {
-                        const errData = await resp.json();
-                        addLog(`ERRORE API: ${errData.error?.message || "Check Key"}`);
+                        const err = await resp.json();
+                        addLog(`ERRORE API: ${err.error?.message || "Check Key"}`);
                         setIsSpeaking(false);
                         return;
                     }
@@ -127,20 +170,28 @@
 
                     const audio = new Audio(URL.createObjectURL(pcmToWav(bytes, rate)));
                     audio.onended = () => setIsSpeaking(false);
-                    audio.play();
-                    addLog("Segnale audio trasmesso.");
-                } catch (e) {
-                    addLog(`Crash: ${e.message}`);
-                    setIsSpeaking(false);
-                }
+                    audio.play().catch(e => addLog("Sblocca l'audio nel monitor!"));
+                    addLog("Segnale trasmesso.");
+                } catch (e) { addLog(`Crash: ${e.message}`); setIsSpeaking(false); }
+            };
+
+            const saldaFuel = async () => {
+                if (!user || !db || !geminiKey) return;
+                const { doc, setDoc, serverTimestamp } = window.FB;
+                addLog("Saldatura configurazione in corso...");
+                try {
+                    const configRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'master_config');
+                    await setDoc(configRef, { gemini_key: geminiKey, updated_at: serverTimestamp() });
+                    addLog("Fuel SALDATO nel Caveau.");
+                } catch (e) { addLog("Errore salvataggio: " + e.message); }
             };
 
             const handleVideoActivation = () => {
                 if (videoRef.current) {
                     videoRef.current.play().then(() => {
                         setVideoStatus('ON');
-                        addLog("Monitor Attivo.");
-                    }).catch(e => addLog("Tocca per sbloccare."));
+                        addLog("Monitor Operativo.");
+                    }).catch(e => addLog("Tocca per sbloccare!"));
                 }
             };
 
@@ -148,9 +199,9 @@
                 <div className="min-h-screen flex items-center justify-center p-6 bg-black">
                     <div className="glass p-12 rounded-[5rem] text-center max-w-sm w-full border-t-8 border-yellow-500 shadow-2xl">
                         <div className="w-24 h-24 bg-yellow-500 rounded-3xl mx-auto mb-10 flex items-center justify-center font-black text-5xl text-black shadow-lg">R</div>
-                        <h1 className="text-4xl font-black uppercase italic mb-4 text-yellow-500 gold-glow leading-none">SENTINEL 10.1</h1>
-                        <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-12 italic">Master Unit // Fuel Ready</p>
-                        <button onClick={() => setView('hub')} className="w-full bg-yellow-500 py-6 rounded-[2rem] font-black uppercase text-xs tracking-widest btn-action text-black shadow-xl">Entra nel Porto</button>
+                        <h1 className="text-4xl font-black uppercase italic mb-4 text-yellow-500 gold-glow leading-none tracking-tighter">SENTINEL 10.2</h1>
+                        <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-12 italic">Black Box // Persistence</p>
+                        <button onClick={() => setView('hub')} className="w-full bg-yellow-500 py-6 rounded-[2rem] font-black uppercase text-xs tracking-widest btn-action text-black">Entra nel Porto</button>
                     </div>
                 </div>
             );
@@ -159,11 +210,11 @@
                 <div className="min-h-screen flex flex-col">
                     <header className="z-50 px-8 py-6 bg-black/95 border-b-2 border-yellow-500/10 flex justify-between items-center sticky top-0 shadow-2xl">
                         <div className="flex items-center gap-4 cursor-pointer" onClick={() => setView('hub')}>
-                            <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center font-black text-black shadow-lg">R</div>
+                            <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center font-black text-black">R</div>
                             <h1 className="text-xl font-black uppercase italic hidden md:block">Radio Replicante</h1>
                         </div>
                         <div className="flex items-center gap-4">
-                            <span className="text-[9px] font-black px-4 py-1.5 rounded-full border border-yellow-500/40 text-yellow-500 uppercase tracking-widest">{status}</span>
+                            <span className="text-[9px] font-black px-4 py-1.5 rounded-full border border-yellow-500/40 text-yellow-500 uppercase">{status}</span>
                             {view !== 'hub' && <button onClick={() => setView('hub')} className="text-[10px] font-black uppercase text-yellow-500 border-b border-yellow-500/20 hover:border-yellow-500 transition-all">Moli</button>}
                         </div>
                     </header>
@@ -171,10 +222,10 @@
                     <main className="flex-1 flex flex-col items-center p-6 overflow-y-auto relative z-20 pb-40">
                         {view === 'hub' && (
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 w-full max-w-6xl mt-12 px-4">
-                                <HubCard title="Piazza Mugugni" desc="Archivio segnali." icon="😤" color="amber" onClick={() => setView('bacheca')} />
-                                <HubCard title="Sara Live" desc="Monitor con Diagnostica." icon="📡" color="blue" onClick={() => setView('sara')} />
-                                <HubCard title="Ugo AI" desc="Logica cinica." icon="🤖" color="slate" onClick={() => setView('ugo')} />
-                                <HubCard title="Direttore" desc="Accesso Caveau." icon="🔒" color="red" onClick={() => setView('director')} />
+                                <HubCard title="Piazza Mugugni" desc="Mugugni del Porto." icon="😤" color="amber" onClick={() => setView('bacheca')} />
+                                <HubCard title="Sara Live" desc="Monitor con Black Box." icon="📡" color="blue" onClick={() => setView('sara')} />
+                                <HubCard title="Ugo AI" desc="Logica di strada." icon="🤖" color="slate" onClick={() => setView('ugo')} />
+                                <HubCard title="Direttore" desc="Caveau & Fuel." icon="🔒" color="red" onClick={() => setView('director')} />
                             </div>
                         )}
 
@@ -184,7 +235,7 @@
                                     {videoStatus !== 'ON' && (
                                         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 cursor-pointer">
                                             <div className="w-24 h-24 bg-yellow-500 rounded-full flex items-center justify-center text-black text-4xl play-btn-glow mb-6">▶</div>
-                                            <p className="text-[10px] font-black uppercase tracking-[0.4em] text-yellow-500 text-center">ATTIVA SARA</p>
+                                            <p className="text-[10px] font-black uppercase tracking-[0.4em] text-yellow-500 text-center">ATTIVA SEGNALE</p>
                                         </div>
                                     )}
                                     <video ref={videoRef} loop muted playsInline poster="sara.png" className="w-full h-full object-cover scale-110">
@@ -192,57 +243,49 @@
                                     </video>
                                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none"></div>
                                 </div>
-
                                 <div className="w-full glass p-8 rounded-[3rem] border-l-4 border-yellow-500 shadow-2xl">
                                     <h3 className="text-[10px] font-black text-yellow-500 uppercase mb-4 italic tracking-widest leading-none">Diagnostic Console:</h3>
-                                    <div className="space-y-2 max-h-32 overflow-y-auto custom-scrollbar font-mono text-[9px] text-slate-500 mb-6">
-                                        {logs.length === 0 ? <p>Monitoraggio frequenze...</p> : logs.map((l, i) => <p key={i} className={l.includes('ERRORE') ? 'text-red-500' : 'text-slate-400'}>{l}</p>)}
+                                    <div className="space-y-2 max-h-32 overflow-y-auto custom-scrollbar font-mono text-[9px] text-slate-500">
+                                        {logs.length === 0 ? <p>In ascolto...</p> : logs.map((l, i) => <p key={i} className={l.includes('ERRORE') ? 'text-red-500' : 'text-slate-400'}>{l}</p>)}
                                     </div>
-
-                                    {!geminiKey && (
-                                        <div className="space-y-4 border-t border-white/5 pt-6">
-                                            <p className="text-[10px] font-black text-red-500 uppercase italic">⚠️ Inserire Chiave API Gemini:</p>
-                                            <input type="password" placeholder="INCOLLA QUI LA CHIAVE..." className="w-full bg-black border border-white/10 rounded-xl p-4 text-[10px] font-mono text-white outline-none focus:border-yellow-500" onChange={(e) => setGeminiKey(e.target.value)} />
-                                        </div>
-                                    )}
-
-                                    {geminiKey && <button onClick={() => speak("Segnale agganciato. Sono operativa Elvio!", "Aoede")} className="w-full bg-yellow-500 py-4 rounded-2xl text-[10px] font-black text-black uppercase hover:bg-yellow-400 transition-all shadow-xl">Spara Test Vocale</button>}
                                 </div>
                             </div>
                         )}
 
                         {view === 'director' && !isUnlocked && (
-                            <div className="w-full max-w-sm glass p-16 rounded-[4rem] border-t-8 border-red-600 text-center shadow-2xl mt-12 px-4 animate-in zoom-in-95">
+                            <div className="w-full max-w-sm glass p-16 rounded-[4rem] border-t-8 border-red-600 text-center shadow-2xl mt-12 px-4">
                                 <h2 className="text-5xl font-black italic uppercase text-red-600 mb-12 tracking-tighter leading-none gold-glow">Core Access</h2>
                                 <input type="password" placeholder="PASSWORD" className="w-full bg-black/70 border-2 border-white/10 rounded-3xl p-8 text-center text-4xl font-black tracking-[0.3em] text-red-500 mb-12 outline-none focus:border-red-600 shadow-inner" onKeyDown={(e) => { if(e.key==='Enter' && (e.target.value.toLowerCase().includes('genova') || e.target.value.includes('2026'))) setIsUnlocked(true); }} />
-                                <button onClick={() => setIsUnlocked(true)} className="w-full bg-red-600 py-8 rounded-[2.5rem] font-black uppercase text-xs tracking-widest text-white shadow-xl hover:bg-red-500 active:scale-95 transition-all">Sblocca Caveau</button>
+                                <button onClick={() => setIsUnlocked(true)} className="w-full bg-red-600 py-8 rounded-[2.5rem] font-black uppercase text-xs tracking-widest text-white">Sblocca Caveau</button>
                             </div>
                         )}
 
                         {view === 'director' && isUnlocked && (
                             <div className="w-full max-w-4xl animate-in fade-in duration-700 px-4 mt-12">
                                 <div className="glass p-12 rounded-[4rem] border-l-8 border-amber-500 shadow-2xl mb-12 text-center">
-                                    <h3 className="text-4xl font-black italic uppercase text-amber-500 mb-8 tracking-tighter">Batteria Modulo Vocale</h3>
-                                    <p className="text-[10px] text-slate-500 uppercase mb-8 italic tracking-widest">Incolla la tua API Key qui per attivare Sara e Ugo.</p>
-                                    <input type="password" value={geminiKey} placeholder="CHIAVE API GEMINI" className="w-full bg-black/60 border-2 border-white/10 rounded-[2rem] p-6 text-center text-xl font-mono text-white outline-none focus:border-amber-500 mb-8" onChange={(e) => setGeminiKey(e.target.value)} />
-                                    <div className="flex justify-center gap-6">
-                                        <button onClick={() => setView('hub')} className="bg-white/5 border border-white/10 px-10 py-4 rounded-full text-[10px] font-black uppercase text-white hover:bg-white/10 transition-all shadow-lg">Torna ai Moli</button>
-                                        <button onClick={() => addLog("Batteria ricaricata con nuova chiave.")} className="bg-amber-500 text-black px-12 py-4 rounded-full text-[10px] font-black uppercase shadow-xl hover:bg-amber-400 transition-all italic">Aggiorna Fuel</button>
+                                    <h3 className="text-4xl font-black italic uppercase text-amber-500 mb-8 tracking-tighter">Batteria Master</h3>
+                                    <p className="text-[10px] text-slate-500 uppercase mb-8 italic tracking-widest">Configura la chiave API per attivare la voce di Sara.</p>
+                                    <input type="password" value={geminiKey} placeholder="INCOLLA API KEY" className="w-full bg-black/60 border-2 border-white/10 rounded-[2rem] p-6 text-center text-xl font-mono text-white outline-none focus:border-amber-500 mb-8" onChange={(e) => setGeminiKey(e.target.value)} />
+                                    <div className="flex flex-col sm:flex-row justify-center gap-6">
+                                        <button onClick={saldaFuel} className="bg-amber-500 text-black px-12 py-4 rounded-full text-[10px] font-black uppercase shadow-xl hover:bg-amber-400 transition-all italic">Salda Configurazione</button>
+                                        <button onClick={() => speak("Socio, senti come ruggisce Genova? Il sistema è Registered!", "Aoede")} className="bg-white/5 border border-white/10 px-12 py-4 rounded-full text-[10px] font-black uppercase text-white hover:bg-white/10 transition-all">Spara Test Vocale</button>
                                     </div>
+                                    <p className="mt-8 text-[9px] text-slate-600 uppercase font-black tracking-widest opacity-50 italic">Salvataggio persistente in Firestore /artifacts/... (Regola 1)</p>
                                 </div>
+                                <button onClick={() => setView('hub')} className="w-full bg-white/5 py-4 rounded-full text-[10px] font-black uppercase text-slate-500 hover:text-white transition-all">Torna ai Moli</button>
                             </div>
                         )}
 
-                        {/* Viste ridotte */}
-                        {view === 'ugo' && <div className="p-20 text-center font-black opacity-20 uppercase text-4xl">Ugo pronto per l'API.</div>}
-                        {view === 'bacheca' && <div className="p-20 text-center font-black opacity-20 uppercase text-4xl tracking-widest italic">Archivio Mugugni Aperto.</div>}
+                        {/* Viste di bacheca e ugo conservate ma semplificate per focus fuel */}
+                        {view === 'ugo' && <div className="p-20 text-center font-black opacity-20 uppercase text-4xl">Ugo mastica fuel...</div>}
+                        {view === 'bacheca' && <div className="p-20 text-center font-black opacity-20 uppercase text-4xl">Bacheca online.</div>}
                     </main>
 
                     <footer className="h-20 bg-yellow-500 flex items-center overflow-hidden z-[100] shadow-2xl border-t-4 border-black/30">
-                        <div className="px-14 bg-black h-full flex items-center font-black text-sm text-yellow-500 uppercase italic tracking-[1em] z-50">SENTINEL_10.1</div>
+                        <div className="px-14 bg-black h-full flex items-center font-black text-sm text-yellow-500 uppercase italic tracking-[1em] z-50">SENTINEL_10.2</div>
                         <div className="flex-1 whitespace-nowrap animate-marquee flex items-center gap-48 font-black text-xl text-black italic uppercase tracking-tighter">
-                            <span>*** RADIO REPLICANTE GENOVA // MASTER HUB v10.1 ZENA FUEL ***</span>
-                            <span>FUEL STATUS: {geminiKey ? 'CHARGED' : 'EMPTY'} *** SARA MONITOR: {videoStatus} ***</span>
+                            <span>*** RADIO REPLICANTE GENOVA // MASTER HUB v10.2 BLACK BOX ***</span>
+                            <span>FUEL STATUS: {geminiKey ? 'REGISTERED' : 'EMPTY'} *** MONITOR: {videoStatus} ***</span>
                             <span>SBAM PER OVERRIDE CORE // NO CENSURA // SOLO VERITÀ ***</span>
                         </div>
                     </footer>
@@ -251,7 +294,7 @@
         }
 
         function HubCard({ title, desc, icon, onClick, color }) {
-            const colors = { amber: 'hover:border-yellow-500', blue: 'hover:border-blue-500', slate: 'hover:border-slate-500', red: 'border-red-600' };
+            const colors = { amber: 'hover:border-yellow-500', blue: 'hover:border-blue-500', slate: 'hover:border-slate-500', red: 'hover:border-red-600' };
             return (
                 <button onClick={onClick} className={`glass border-2 rounded-[5rem] p-16 text-left transition-all group shadow-2xl ${colors[color] || 'border-white/5'} hover:scale-[1.03] btn-action`}>
                     <div className="text-7xl mb-10 group-hover:scale-110 transition-transform">{icon}</div>
