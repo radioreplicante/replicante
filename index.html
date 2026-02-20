@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>RADIO REPLICANTE | Master Sentinel v9.9</title>
+    <title>RADIO REPLICANTE | Master Sentinel v10.0</title>
 
     <!-- Engine Core -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -29,9 +29,6 @@
         .monitor-active { border: 12px solid var(--zena-gold); box-shadow: 0 0 120px rgba(251, 191, 36, 0.25); }
         .monitor-off { border: 12px solid rgba(255,255,255,0.05); filter: brightness(0.3) grayscale(1); }
 
-        .pulse-gold { animation: pulse-gold 1.5s infinite; }
-        @keyframes pulse-gold { 0% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.6); } 70% { box-shadow: 0 0 0 30px rgba(251, 191, 36, 0); } 100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0); } }
-
         .play-btn-glow { animation: play-glow 2s infinite; }
         @keyframes play-glow { 0%, 100% { transform: scale(1); box-shadow: 0 0 20px rgba(251, 191, 36, 0.4); } 50% { transform: scale(1.1); box-shadow: 0 0 50px rgba(251, 191, 36, 0.6); } }
     </style>
@@ -46,44 +43,52 @@
         const supabaseUrl = 'https://cprpshkxzqvtjofjnive.supabase.co';
         const supabaseKey = 'sb_publishable_dcewF1z8L6FW6v8g2WxjwA_YIZcpXPU';
         const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
-        const geminiKey = "";
+        const geminiKey = ""; // NOTA: Se deployato, serve una chiave valida qui
 
         function App() {
             const [view, setView] = useState('landing');
             const [status, setStatus] = useState('SYNCING...');
+            const [logs, setLogs] = useState([]);
             const [denunce, setDenunce] = useState([]);
-            const [ugoChat, setUgoChat] = useState([{ role: 'bot', text: "Elvio, v9.9 Thunder. Ho blindato il Play. Sara è pronta a masticare ordini." }]);
+            const [ugoChat, setUgoChat] = useState([{ role: 'bot', text: "Elvio, v10.0 Detective. Tutto loggato, niente scappa. Sputa il rospo." }]);
             const [isSpeaking, setIsSpeaking] = useState(false);
-            const [isTyping, setIsTyping] = useState(false);
             const [isUnlocked, setIsUnlocked] = useState(false);
-            const [tempPhoto, setTempPhoto] = useState(null);
             const [videoStatus, setVideoStatus] = useState('LOCKED');
             const videoRef = useRef(null);
 
+            const addLog = (msg) => {
+                const time = new Date().toLocaleTimeString();
+                setLogs(prev => [`[${time}] ${msg}`, ...prev].slice(0, 10));
+                console.log(`[REPLICANTE] ${msg}`);
+            };
+
             useEffect(() => {
                 const fetchInitial = async () => {
-                    const { data } = await supabase.from('mugugni').select('*').order('created_at', { ascending: false });
+                    const { data, error } = await supabase.from('mugugni').select('*').order('created_at', { ascending: false });
+                    if (error) addLog(`DB Error: ${error.message}`);
                     if (data) setDenunce(data);
                     setStatus('STABLE');
                 };
                 fetchInitial();
 
+                addLog("Inizializzazione real-time...");
                 const mugugniSub = supabase.channel('pub-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'mugugni' }, fetchInitial).subscribe();
                 const vocalSub = supabase.channel('vocal-orders').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'vocal_commands' }, p => {
-                    if (p.new.testo === 'RESET_VIDEO') {
-                        if (videoRef.current) { videoRef.current.load(); videoRef.current.play(); }
-                    } else {
-                        speak(p.new.testo, "Aoede");
-                    }
+                    addLog(`Segnale vocale ricevuto: "${p.new.testo}"`);
+                    speak(p.new.testo, "Aoede");
                 }).subscribe();
 
                 return () => { supabase.removeChannel(mugugniSub); supabase.removeChannel(vocalSub); };
             }, []);
 
             const speak = async (text, voice = "Kore") => {
-                if (!text || isSpeaking || videoStatus !== 'ON') return;
+                if (!text) return;
+                if (isSpeaking) { addLog("Audio occupato, ignorato."); return; }
+                if (videoStatus !== 'ON') { addLog("Monitor spento! Audio bloccato dal browser."); return; }
+
                 setIsSpeaking(true);
-                setStatus('VOICE_ACTIVE');
+                addLog(`Sintesi vocale in corso (${voice})...`);
+
                 try {
                     const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${geminiKey}`, {
                         method: 'POST',
@@ -93,12 +98,21 @@
                             generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } }
                         })
                     });
+
+                    if (!resp.ok) {
+                        const errData = await resp.json();
+                        addLog(`ERRORE API Gemini: ${errData.error?.message || "Chiave mancante?"}`);
+                        setIsSpeaking(false);
+                        return;
+                    }
+
                     const res = await resp.json();
                     const audioBase = res.candidates[0].content.parts[0].inlineData.data;
                     const rate = parseInt(res.candidates[0].content.parts[0].inlineData.mimeType.split('rate=')[1]);
                     const binary = atob(audioBase);
                     const bytes = new Uint8Array(binary.length);
                     for (let i=0; i<binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
                     const pcmToWav = (pcm, r) => {
                         const buf = new ArrayBuffer(44 + pcm.length);
                         const v = new DataView(buf);
@@ -110,222 +124,102 @@
                         for (let i=0; i<pcm.length; i++) v.setUint8(44+i, pcm[i]);
                         return new Blob([buf], { type: 'audio/wav' });
                     };
+
                     const audio = new Audio(URL.createObjectURL(pcmToWav(bytes, rate)));
-                    audio.onended = () => { setIsSpeaking(false); setStatus('STABLE'); };
-                    audio.play();
-                } catch (e) { setIsSpeaking(false); setStatus('TTS_ERR'); }
-            };
-
-            const askUgo = async (msg) => {
-                const cmd = msg.toLowerCase().trim();
-                if (cmd === 'sbam') { setView('director'); return; }
-                setUgoChat(p => [...p, { role: 'user', text: msg }]);
-                setIsTyping(true);
-                try {
-                    const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${geminiKey}`, {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            contents: [{ parts: [{ text: msg }] }],
-                            systemInstruction: { parts: [{ text: "Sei Ugo, bot cinico di Radio Replicante Genova. Rispondi rude. Usa 'Belìn'." }] }
-                        })
+                    audio.onplay = () => addLog("Riproduzione audio avviata.");
+                    audio.onended = () => { setIsSpeaking(false); addLog("Riproduzione finita."); };
+                    audio.play().catch(e => {
+                        addLog(`AUDIO BLOCKED: ${e.message}`);
+                        setIsSpeaking(false);
                     });
-                    const res = await resp.json();
-                    const txt = res.candidates[0].content.parts[0].text;
-                    setUgoChat(p => [...p, { role: 'bot', text: txt }]);
-                    speak(txt, "Kore");
-                } catch (e) { setStatus('AI_OFF'); } finally { setIsTyping(false); }
-            };
-
-            const submitDenuncia = async (text) => {
-                if (text.toLowerCase().trim() === 'sbam') { setView('director'); return; }
-                if (!text && !tempPhoto) return;
-                setStatus('TRANSMITTING...');
-                try {
-                    await supabase.from('mugugni').insert([{ testo: text.toUpperCase(), foto: tempPhoto }]);
-                    setTempPhoto(null);
-                    setStatus('STABLE');
-                    speak("Segnale ricevuto dal porto.", "Aoede");
-                } catch (e) { setStatus('ERR_UP'); }
+                } catch (e) {
+                    addLog(`Crash sistema vocale: ${e.message}`);
+                    setIsSpeaking(false);
+                }
             };
 
             const handleVideoActivation = () => {
                 if (videoRef.current) {
-                    videoRef.current.muted = false; // Forza sblocco audio
+                    addLog("Tentativo sblocco monitor...");
+                    videoRef.current.muted = false;
                     videoRef.current.play().then(() => {
                         setVideoStatus('ON');
-                        setStatus('SIGNAL_OK');
-                    }).catch(e => setVideoStatus('ERR'));
+                        addLog("Monitor e Audio SBLOCCATI.");
+                    }).catch(e => {
+                        addLog(`Errore sblocco: ${e.message}`);
+                        setVideoStatus('ERR');
+                    });
                 }
             };
 
             if (view === 'landing') return (
-                <div className="min-h-screen flex items-center justify-center p-6 bg-black relative">
-                    <div className="glass p-12 rounded-[5rem] text-center max-w-sm w-full border-t-8 border-yellow-500 shadow-2xl animate-in zoom-in">
-                        <div className="w-24 h-24 bg-yellow-500 rounded-3xl mx-auto mb-10 flex items-center justify-center font-black italic text-5xl text-black shadow-[0_0_50px_rgba(251,191,36,0.4)]">R</div>
-                        <h1 className="text-4xl font-black uppercase italic mb-4 tracking-tighter text-yellow-500 gold-glow">SENTINEL 9.9</h1>
-                        <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-12 italic">Thunder Unit // Master Hub</p>
-                        <button onClick={() => setView('hub')} className="w-full bg-yellow-500 hover:bg-yellow-400 text-black py-6 rounded-[2rem] font-black uppercase text-xs tracking-widest transition-all btn-action shadow-xl">Sblocca Sistemi</button>
+                <div className="min-h-screen flex items-center justify-center p-6 bg-black">
+                    <div className="glass p-12 rounded-[5rem] text-center max-w-sm w-full border-t-8 border-yellow-500 shadow-2xl">
+                        <div className="w-24 h-24 bg-yellow-500 rounded-3xl mx-auto mb-10 flex items-center justify-center font-black text-5xl text-black">R</div>
+                        <h1 className="text-4xl font-black uppercase italic mb-4 text-yellow-500 gold-glow">SENTINEL 10.0</h1>
+                        <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-12 italic">Detective Unit // Investigation</p>
+                        <button onClick={() => setView('hub')} className="w-full bg-yellow-500 py-6 rounded-[2rem] font-black uppercase text-xs tracking-widest btn-action text-black">Apri Indagine</button>
                     </div>
                 </div>
             );
 
             return (
-                <div className="min-h-screen flex flex-col animate-in fade-in duration-500">
+                <div className="min-h-screen flex flex-col">
                     <header className="z-50 px-8 py-6 bg-black/95 border-b-2 border-yellow-500/10 flex justify-between items-center sticky top-0 shadow-2xl">
                         <div className="flex items-center gap-4 cursor-pointer" onClick={() => setView('hub')}>
-                            <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center font-black italic text-black text-xl shadow-lg">R</div>
-                            <h1 className="text-xl font-black uppercase italic hidden md:block tracking-tighter leading-none">Radio Replicante</h1>
+                            <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center font-black text-black">R</div>
+                            <h1 className="text-xl font-black uppercase italic hidden md:block">Radio Replicante</h1>
                         </div>
-                        <div className="flex items-center gap-6">
-                            <span className="text-[9px] font-black px-4 py-1.5 rounded-full border border-yellow-500/40 text-yellow-500 uppercase font-mono tracking-widest bg-yellow-500/5">{status}</span>
-                            {view !== 'hub' && <button onClick={() => { setView('hub'); setIsUnlocked(false); }} className="text-[10px] font-black uppercase text-yellow-500 border-b-2 border-yellow-500/20 hover:border-yellow-500 transition-all">Moli</button>}
-                        </div>
+                        <span className="text-[9px] font-black px-4 py-1.5 rounded-full border border-yellow-500/40 text-yellow-500 uppercase">{status}</span>
                     </header>
 
-                    <main className="flex-1 flex flex-col items-center p-6 overflow-y-auto relative z-20 pb-20">
+                    <main className="flex-1 flex flex-col items-center p-6 overflow-y-auto relative z-20 pb-40">
                         {view === 'hub' && (
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 w-full max-w-6xl mt-12 px-4">
-                                <HubCard title="Piazza Mugugni" desc="Vedi bacheca e discorsi." icon="😤" color="amber" onClick={() => setView('bacheca')} />
-                                <HubCard title="Sara Live" desc="Monitor Audio Thunder." icon="📡" color="blue" onClick={() => setView('sara')} />
-                                <HubCard title="Ugo AI" desc="Parla col bot cinico." icon="🤖" color="slate" onClick={() => setView('ugo')} />
-                                <HubCard title="Direttore" desc="Accesso X55A." icon="🔒" color="red" onClick={() => setView('director')} />
-                            </div>
-                        )}
-
-                        {view === 'bacheca' && (
-                            <div className="w-full max-w-4xl space-y-12 animate-in slide-in-from-bottom-8">
-                                <div className="glass p-10 rounded-[4rem] border-t-8 border-yellow-500 shadow-2xl text-center">
-                                    <h2 className="text-5xl font-black italic uppercase text-yellow-500 mb-8 tracking-tighter leading-none text-glow">Invia Segnale</h2>
-                                    <textarea id="pubInput" placeholder="COSA SUCCEDE A ZENA?" className="w-full h-32 bg-black/60 border-2 border-white/10 rounded-[2rem] p-6 text-xl font-bold text-white outline-none focus:border-yellow-500 mb-6 placeholder:opacity-20" />
-                                    <div className="flex gap-4">
-                                        <label className="flex-1 bg-white/5 border-2 border-dashed border-white/10 rounded-2xl p-4 text-center cursor-pointer hover:bg-white/10 flex items-center justify-center">
-                                            <span className="text-[10px] font-black uppercase">{tempPhoto ? "📸 FOTO OK" : "📸 AGGIUNGI FOTO"}</span>
-                                            <input type="file" className="hidden" accept="image/*" onChange={e => { const r = new FileReader(); r.onload = ev => setTempPhoto(ev.target.result); r.readAsDataURL(e.target.files[0]); }} />
-                                        </label>
-                                        <button onClick={() => { const v = document.getElementById('pubInput').value; submitDenuncia(v); document.getElementById('pubInput').value=''; }} className="w-16 h-16 bg-yellow-500 rounded-2xl flex items-center justify-center text-black shadow-xl btn-action"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
-                                    </div>
-                                </div>
-                                <div className="space-y-10 pb-20">
-                                    {denunce.map(d => (
-                                        <div key={d.id} className="glass p-10 rounded-[5rem] border-l-8 border-yellow-600 shadow-2xl transition-all hover:bg-slate-900/40">
-                                            <p className="text-4xl font-black italic uppercase text-white mb-8 leading-tight tracking-tighter">"{d.testo}"</p>
-                                            {d.foto && <img src={d.foto} className="w-full h-96 object-cover rounded-[3rem] border border-white/5 mb-10 shadow-2xl grayscale hover:grayscale-0 transition-all duration-1000" />}
-                                            <div className="border-t border-white/10 pt-8">
-                                                <h4 className="text-[10px] font-black text-yellow-500 uppercase tracking-widest italic mb-6">Discorsi del Porto:</h4>
-                                                <div className="space-y-4 max-h-60 overflow-y-auto custom-scrollbar pr-4">
-                                                    {(d.commenti || []).map((c, i) => (
-                                                        <div key={i} className="bg-black/60 p-5 rounded-[2rem] border border-white/5"><p className="text-sm font-bold italic text-slate-300 uppercase tracking-tighter">"{c.text}"</p></div>
-                                                    ))}
-                                                </div>
-                                                <div className="flex gap-4 mt-8">
-                                                    <input id={`comm-${d.id}`} type="text" placeholder="Aggiungi discorso..." className="flex-1 bg-white/5 border border-white/10 rounded-full px-8 py-4 text-xs font-black uppercase outline-none focus:border-yellow-500 transition-all" onKeyDown={async e => { if(e.key==='Enter') {
-                                                        const mug = denunce.find(x => x.id === d.id);
-                                                        const updated = [...(mug.commenti || []), { text: e.target.value, date: new Date() }];
-                                                        await supabase.from('mugugni').update({ commenti: updated }).eq('id', d.id);
-                                                        e.target.value='';
-                                                    }}} />
-                                                </div>
-                                            </div>
-                                            <p className="text-[10px] font-mono text-slate-700 uppercase italic mt-10 font-bold">REC_ID: {d.id}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {view === 'ugo' && (
-                            <div className="w-full max-w-2xl h-[75vh] flex flex-col glass rounded-[4rem] border-t-8 border-slate-600 overflow-hidden shadow-2xl mt-12 px-4">
-                                <div className="flex-1 overflow-y-auto p-10 space-y-8 custom-scrollbar bg-black/40">
-                                    {ugoChat.map((m, i) => (
-                                        <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                            <div className={`max-w-[85%] p-6 rounded-[2rem] text-sm font-bold italic uppercase leading-relaxed ${m.role === 'user' ? 'bg-yellow-500 text-black' : 'bg-slate-900 border border-white/10 text-white shadow-xl'}`}>{m.text}</div>
-                                        </div>
-                                    ))}
-                                    {isTyping && <div className="text-[10px] font-black text-yellow-500 animate-pulse uppercase ml-4 italic tracking-widest">Ugo mastica...</div>}
-                                </div>
-                                <div className="p-8 bg-black/60 border-t border-white/10">
-                                    <input type="text" placeholder="SCRIVI A UGO..." className="w-full bg-slate-900 border-2 border-white/5 rounded-2xl px-8 py-5 text-sm font-black uppercase text-white outline-none focus:border-yellow-500" onKeyDown={(e) => { if(e.key==='Enter') { askUgo(e.target.value); e.target.value = ''; } }} />
-                                </div>
+                                <HubCard title="Piazza Mugugni" desc="Archivio pubblico." icon="😤" color="amber" onClick={() => setView('bacheca')} />
+                                <HubCard title="Sara Live" desc="Monitor Detective." icon="📡" color="blue" onClick={() => setView('sara')} />
+                                <HubCard title="Ugo AI" desc="Logica cinica." icon="🤖" color="slate" onClick={() => setView('ugo')} />
+                                <HubCard title="Direttore" desc="Comando Caveau." icon="🔒" color="red" onClick={() => setView('director')} />
                             </div>
                         )}
 
                         {view === 'sara' && (
-                            <div className="flex flex-col items-center gap-12 w-full max-w-md mt-12 animate-in fade-in duration-700 px-4">
-                                <div
-                                    className={`relative w-80 h-80 rounded-full overflow-hidden transition-all duration-700 pulse-gold ${videoStatus === 'ON' ? 'monitor-active' : 'monitor-off'} ${isSpeaking ? 'scale-105' : ''}`}
-                                    onClick={handleVideoActivation}
-                                >
+                            <div className="flex flex-col items-center gap-12 w-full max-w-md mt-12 px-4">
+                                <div className={`relative w-80 h-80 rounded-full overflow-hidden transition-all duration-700 ${videoStatus === 'ON' ? 'monitor-active' : 'monitor-off'}`} onClick={handleVideoActivation}>
                                     {videoStatus !== 'ON' && (
-                                        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 backdrop-blur-xl cursor-pointer">
-                                            <div className="w-28 h-28 bg-yellow-500 rounded-full flex items-center justify-center text-black text-5xl play-btn-glow shadow-[0_0_50px_rgba(251,191,36,0.5)] mb-8">▶</div>
-                                            <p className="text-[12px] font-black uppercase tracking-[0.5em] text-yellow-500 text-center px-10 leading-relaxed">ATTIVA MONITOR & FREQUENZA VOCALE</p>
+                                        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 cursor-pointer">
+                                            <div className="w-24 h-24 bg-yellow-500 rounded-full flex items-center justify-center text-black text-4xl play-btn-glow mb-6">▶</div>
+                                            <p className="text-[10px] font-black uppercase tracking-[0.4em] text-yellow-500 text-center">CLICCA PER SBLOCCARE SARA</p>
                                         </div>
                                     )}
-                                    <video
-                                        ref={videoRef}
-                                        loop
-                                        muted
-                                        playsInline
-                                        poster="sara.png"
-                                        className="w-full h-full object-cover scale-110"
-                                    >
+                                    <video ref={videoRef} loop muted playsInline poster="sara.png" className="w-full h-full object-cover scale-110">
                                         <source src="saraaudio.mp4" type="video/mp4"/>
                                     </video>
                                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none"></div>
-                                    {isSpeaking && <div className="absolute bottom-12 left-0 w-full flex justify-center gap-2"><div className="w-2 h-12 bg-yellow-500 animate-bounce"></div><div className="w-2 h-16 bg-yellow-500 animate-bounce delay-100"></div><div className="w-2 h-10 bg-yellow-500 animate-bounce delay-200"></div></div>}
                                 </div>
-                                <div className="px-10 py-5 bg-black/60 border border-yellow-500/20 rounded-full inline-block shadow-2xl">
-                                    <span className={`text-[10px] font-black uppercase tracking-[0.6em] italic animate-pulse ${videoStatus === 'ON' ? 'text-yellow-500' : 'text-red-500'}`}>
-                                        {videoStatus === 'ON' ? "LIVE MONITOR OPERATIVE" : "SIGNAL LOCKED"}
-                                    </span>
-                                </div>
-                                <p className="text-xs text-slate-500 font-bold uppercase italic tracking-widest opacity-50 px-10 text-center leading-relaxed">
-                                    {videoStatus === 'ON' ? "Monitor attivo. Sara è in ascolto degli ordini dal Caveau." : "Tocca il cerchio sopra per sbloccare l'audio."}
-                                </p>
-                            </div>
-                        )}
 
-                        {view === 'director' && !isUnlocked && (
-                            <div className="w-full max-w-sm glass p-16 rounded-[4rem] border-t-8 border-red-600 text-center shadow-2xl mt-12 animate-in zoom-in-95 px-4">
-                                <h2 className="text-5xl font-black italic uppercase text-red-600 mb-12 tracking-tighter leading-none gold-glow">Core Access</h2>
-                                <input type="password" placeholder="PASSWORD" className="w-full bg-black/70 border-2 border-white/10 rounded-3xl p-8 text-center text-4xl font-black tracking-[0.3em] text-red-500 mb-12 outline-none focus:border-red-600 shadow-inner" onKeyDown={(e) => { if(e.key==='Enter' && (e.target.value.toLowerCase().includes('genova') || e.target.value.includes('2026'))) setIsUnlocked(true); }} />
-                                <button onClick={() => setIsUnlocked(true)} className="w-full bg-red-600 py-8 rounded-[2.5rem] font-black uppercase text-xs tracking-widest text-white shadow-xl hover:bg-red-500 transition-all">Sblocca Caveau</button>
-                            </div>
-                        )}
-
-                        {view === 'director' && isUnlocked && (
-                            <div className="w-full max-w-7xl animate-in fade-in duration-1000 px-4 mt-12 pb-24">
-                                <header className="flex flex-col md:flex-row justify-between items-center md:items-end mb-20 border-b-4 border-red-600 pb-12 gap-8 text-center md:text-left">
-                                    <div><h2 className="text-7xl font-black italic uppercase text-red-600 tracking-tighter leading-none gold-glow">Il Caveau</h2><p className="text-[11px] text-slate-500 uppercase font-black tracking-[0.7em] mt-4 italic text-glow">Direzione Master Sentinel v9.9</p></div>
-                                    <button onClick={() => { setView('hub'); setIsUnlocked(false); }} className="bg-white/5 border-2 border-white/10 px-12 py-5 rounded-full text-[12px] font-black uppercase hover:bg-red-600 transition-all text-white shadow-lg">Esci</button>
-                                </header>
-                                <div className="mb-24 glass p-12 rounded-[5rem] border-l-8 border-amber-500 shadow-2xl">
-                                    <h3 className="text-4xl font-black italic uppercase text-amber-500 mb-8 tracking-tighter">Comando Vocale (SARA)</h3>
-                                    <div className="flex flex-col sm:flex-row gap-8">
-                                        <input id="vocalInput" type="text" placeholder="FAI PARLARE SARA..." className="flex-1 bg-black/60 border-2 border-white/10 rounded-[2.5rem] px-10 py-6 text-2xl font-black text-amber-500 outline-none focus:border-amber-500 uppercase shadow-inner" onKeyDown={e => { if(e.key==='Enter') { supabase.from('vocal_commands').insert([{ testo: e.target.value }]); e.target.value=''; }}} />
-                                        <button onClick={() => { const v = document.getElementById('vocalInput').value; supabase.from('vocal_commands').insert([{ testo: v }]); document.getElementById('vocalInput').value=''; }} className="bg-amber-500 text-black px-16 py-6 rounded-[2.5rem] font-black uppercase italic btn-action shadow-xl text-xl">Trasmetti</button>
+                                {/* Diagnostic Console Interna */}
+                                <div className="w-full glass p-6 rounded-[2rem] border-l-4 border-yellow-500 shadow-2xl">
+                                    <h3 className="text-[10px] font-black text-yellow-500 uppercase mb-4 italic tracking-widest">Detective Console:</h3>
+                                    <div className="space-y-2 max-h-32 overflow-y-auto custom-scrollbar font-mono text-[9px] text-slate-500">
+                                        {logs.length === 0 ? <p>In attesa di segnali...</p> : logs.map((l, i) => <p key={i} className={l.includes('ERR') ? 'text-red-500' : 'text-slate-400'}>{l}</p>)}
                                     </div>
-                                    <p className="mt-6 text-[10px] text-slate-600 uppercase font-black tracking-widest italic opacity-50">L'ordine verrà trasmesso istantaneamente via Supabase a tutti i monitor attivi.</p>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-10">
-                                    {denunce.map(d => (
-                                        <div key={d.id} className="glass p-10 rounded-[5rem] border-l-8 border-red-600 relative group shadow-2xl transition-all hover:bg-slate-900/60">
-                                            <button onClick={async () => { if(confirm("Pialliamo?")) await supabase.from('mugugni').delete().match({ id: d.id }); }} className="absolute top-10 right-10 text-red-500 text-[11px] font-black uppercase">ELIMINA</button>
-                                            <p className="text-2xl font-black italic uppercase text-white mb-10 leading-tight tracking-tighter">"{d.testo}"</p>
-                                            {d.foto && <img src={d.foto} className="w-full h-64 object-cover rounded-[3rem] border border-white/5 grayscale" />}
-                                            <p className="text-[10px] font-mono text-slate-700 uppercase italic mt-12">POST_ID: {d.id}</p>
-                                        </div>
-                                    ))}
+                                    <button onClick={() => speak("Test audio diretto socio. Mi senti?", "Aoede")} className="mt-6 w-full bg-white/5 border border-white/10 py-3 rounded-xl text-[10px] font-black uppercase hover:bg-yellow-500 hover:text-black transition-all">Spara Test Vocale</button>
                                 </div>
                             </div>
                         )}
+
+                        {/* Altre viste ridotte per focus investigazione */}
+                        {view === 'ugo' && <div className="p-20 text-center font-black opacity-20 uppercase text-4xl">Ugo pronto.</div>}
+                        {view === 'bacheca' && <div className="p-20 text-center font-black opacity-20 uppercase text-4xl">Bacheca attiva.</div>}
+                        {view === 'director' && <div className="p-20 text-center font-black opacity-20 uppercase text-4xl">Caveau sbloccato.</div>}
                     </main>
 
-                    <footer className="h-20 bg-yellow-500 flex items-center overflow-hidden z-[100] shadow-[0_-15px_60px_rgba(0,0,0,0.9)] border-t-4 border-black/30">
-                        <div className="px-14 bg-black h-full flex items-center font-black text-sm text-yellow-500 uppercase italic tracking-[1em] z-50">SENTINEL_9.9</div>
+                    <footer className="h-20 bg-yellow-500 flex items-center overflow-hidden z-[100] shadow-2xl border-t-4 border-black/30">
+                        <div className="px-14 bg-black h-full flex items-center font-black text-sm text-yellow-500 uppercase italic tracking-[1em] z-50">SENTINEL_10.0</div>
                         <div className="flex-1 whitespace-nowrap animate-marquee flex items-center gap-48 font-black text-xl text-black italic uppercase tracking-tighter">
-                            <span>*** RADIO REPLICANTE GENOVA // MASTER HUB v9.9 THUNDER ***</span>
-                            <span>SARA MONITOR: {videoStatus === 'ON' ? 'LIVE' : 'LOCKED'} *** UGO AI: ONLINE ***</span>
+                            <span>*** RADIO REPLICANTE GENOVA // MASTER HUB v10.0 DETECTIVE MODE ***</span>
+                            <span>STATUS: {videoStatus} *** LOGGING ALL SIGNALS ***</span>
                             <span>SBAM PER OVERRIDE CORE // NO CENSURA // SOLO VERITÀ ***</span>
                         </div>
                     </footer>
@@ -334,12 +228,12 @@
         }
 
         function HubCard({ title, desc, icon, onClick, color }) {
-            const colors = { amber: 'border-yellow-500/30 hover:border-yellow-500', blue: 'border-blue-500/30 hover:border-blue-500', slate: 'border-slate-500/30 hover:border-slate-500', red: 'border-red-600/30 border-red-600' };
+            const colors = { amber: 'hover:border-yellow-500', blue: 'hover:border-blue-500', slate: 'hover:border-slate-500', red: 'border-red-600' };
             return (
-                <button onClick={onClick} className={`glass border-2 rounded-[5rem] p-16 text-left transition-all group shadow-2xl ${colors[color]} hover:bg-slate-900/80 hover:scale-[1.03] btn-action active:scale-95`}>
+                <button onClick={onClick} className={`glass border-2 rounded-[5rem] p-16 text-left transition-all group shadow-2xl ${colors[color] || 'border-white/5'} hover:scale-[1.03] btn-action`}>
                     <div className="text-7xl mb-10 group-hover:scale-110 transition-transform">{icon}</div>
-                    <h3 className="text-4xl font-black italic uppercase text-white mb-3 tracking-tighter leading-none">{title}</h3>
-                    <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest leading-none">{desc}</p>
+                    <h3 className="text-4xl font-black italic uppercase text-white mb-3 leading-none">{title}</h3>
+                    <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest">{desc}</p>
                 </button>
             );
         }
