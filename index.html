@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>RADIO REPLICANTE | Master Sentinel v11.5</title>
+    <title>RADIO REPLICANTE | Master Sentinel v11.6</title>
 
     <!-- Engine Core -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -48,9 +48,8 @@
         const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 
         // --- CONFIGURAZIONE FIREBASE ---
-        // ATTENZIONE: Qui serve la API KEY di Firebase (quella del progetto replicante-b8ab5)
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-            apiKey: "AIzaSy...", // <-- Se sei su Firebase Hosting, di solito viene iniettata. Se no, incollala qui.
+            apiKey: "AIzaSy...",
             authDomain: "replicante-b8ab5.firebaseapp.com",
             projectId: "replicante-b8ab5",
             storageBucket: "replicante-b8ab5.appspot.com",
@@ -69,7 +68,7 @@
             const [geminiKey, setGeminiKey] = useState('');
             const [misfatti, setMisfatti] = useState([]);
             const [isSpeaking, setIsSpeaking] = useState(false);
-            const [ugoChat, setUgoChat] = useState([{ role: 'bot', text: "Elvio, sono operativo. Incolla la Gemini Key (quella che finisce con 3t8) nel Caveau. Pass: genova2026." }]);
+            const [ugoChat, setUgoChat] = useState([{ role: 'bot', text: "Elvio, v11.6 pronta. Incolla la Gemini Key (quella che finisce con 3t8) nel Caveau. Pass: genova2026." }]);
             const [isTyping, setIsTyping] = useState(false);
             const [videoOn, setVideoOn] = useState(false);
             const [vaultLocked, setVaultLocked] = useState(true);
@@ -96,7 +95,7 @@
                             const docRef = db.collection('artifacts').doc(appId).collection('users').doc(u.uid).collection('settings').doc('config');
                             const snap = await docRef.get();
                             if (snap.exists) setGeminiKey(snap.data().key);
-                        } catch(e) { console.log("Firestore non accessibile, uso stato locale."); }
+                        } catch(e) { console.log("Firestore sync limited."); }
                     }
                 });
             }, []);
@@ -123,8 +122,8 @@
                     try {
                         await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('settings').doc('config')
                             .set({ key, updated_at: firebase.firestore.FieldValue.serverTimestamp() });
-                        setStatus('FUEL_STORED');
-                    } catch(e) { setStatus('FUEL_LOCAL'); }
+                        setStatus('FUEL_SALDATO');
+                    } catch(e) { setStatus('FUEL_MEM'); }
                 }
                 saraSpeak("Segnale agganciato. Sono pronta per la rissa.");
             };
@@ -139,7 +138,7 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             contents: [{ parts: [{ text: msg }] }],
-                            systemInstruction: { parts: [{ text: "Sei Ugo, bot genovese cinico. Odia i potenti, i Rolex e le ipocrisie. Usa 'Belìn'. Sii satirico e tagliente. Massimo 2 righe." }] }
+                            systemInstruction: { parts: [{ text: "Sei Ugo, bot genovese cinico. Odia i potenti, i Rolex e le ipocrisie. Usa 'Belìn'. Massimo 2 righe." }] }
                         })
                     });
                     const res = await resp.json();
@@ -147,7 +146,7 @@
                     setUgoChat(prev => [...prev, { role: 'bot', text: txt }]);
                     saraSpeak(txt);
                 } catch (e) {
-                    setUgoChat(prev => [...prev, { role: 'bot', text: "Belìn Elvio, mi manca la chiave! Mettila nel Caveau." }]);
+                    setUgoChat(prev => [...prev, { role: 'bot', text: "Belìn Elvio, mi manca la chiave! Incollala nel Caveau (Password: genova2026)." }]);
                 }
                 finally { setIsTyping(false); }
             };
@@ -181,8 +180,8 @@
                 <div className="min-h-screen bg-black flex items-center justify-center p-6">
                     <div className="max-w-sm w-full glass border-t-8 border-yellow-500 p-12 rounded-[5rem] text-center shadow-2xl animate-in zoom-in">
                         <div className="w-20 h-20 bg-yellow-500 rounded-2xl mx-auto mb-8 flex items-center justify-center font-black text-4xl text-black shadow-lg">R</div>
-                        <h1 className="text-4xl font-black italic uppercase text-yellow-500 mb-4 tracking-tighter">SENTINEL 11.5</h1>
-                        <p className="text-[10px] text-slate-500 uppercase font-black tracking-[0.5em] mb-10 italic">Zena Keymaster Unit</p>
+                        <h1 className="text-4xl font-black italic uppercase text-yellow-500 mb-4 tracking-tighter">SENTINEL 11.6</h1>
+                        <p className="text-[10px] text-slate-500 uppercase font-black tracking-[0.5em] mb-10 italic">Zena Hardened Unit</p>
                         <button onClick={handleLanding} className="w-full bg-yellow-500 py-6 rounded-3xl font-black uppercase text-xs text-black active:scale-95 transition-all shadow-xl">Entra nei Carruggi</button>
                     </div>
                 </div>
@@ -204,10 +203,10 @@
                     <main className="flex-1 overflow-y-auto p-6 flex flex-col items-center pb-24 relative z-20">
                         {view === 'hub' && (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full max-w-6xl mt-8 animate-in fade-in">
-                                <Card title="Fatti & Misfatti" desc="Gogna pubblica via Supabase." icon="📸" color="amber" onClick={() => setView('misfatti')} />
-                                <Card title="Sara Live" desc="Monitor dei Rolex." icon="📡" color="blue" onClick={() => setView('sara')} />
+                                <Card title="Fatti & Misfatti" desc="La gogna via Supabase." icon="📸" color="amber" onClick={() => setView('misfatti')} />
+                                <Card title="Sara Monitor" desc="L'occhio dei carruggi." icon="📡" color="blue" onClick={() => setView('sara')} />
                                 <Card title="Ugo AI" desc="Logica cinica parlante." icon="🤖" color="slate" onClick={() => setView('ugo')} />
-                                <Card title="Molo Vaticano" desc="Mugugni sotto il campanile." icon="⛪" color="yellow" onClick={() => setView('vaticano')} />
+                                <Card title="Molo Vaticano" desc="Mugugni clericali." icon="⛪" color="yellow" onClick={() => setView('vaticano')} />
                                 <Card title="Palazzo Tursi" desc="Politica in mutande." icon="🏛️" color="red" onClick={() => setView('politica')} />
                                 <Card title="Caveau" desc="Fuel & Gestione." icon="🔒" color="red" onClick={() => setView('vault')} />
                             </div>
@@ -225,7 +224,7 @@
                                     {isTyping && <div className="text-[10px] font-black text-yellow-500 animate-pulse uppercase ml-4">Ugo mastica misfatti...</div>}
                                 </div>
                                 <div className="p-6 bg-black/60">
-                                    <input type="text" placeholder="INSULTA UN POLITICO..." className="w-full bg-slate-800 rounded-3xl px-8 py-5 text-sm font-black uppercase outline-none focus:border-yellow-500" onKeyDown={e => { if(e.key==='Enter') { askUgo(e.target.value); e.target.value=''; }}} />
+                                    <input type="text" placeholder="SCRIVI A UGO..." className="w-full bg-slate-800 rounded-3xl px-8 py-5 text-sm font-black uppercase outline-none focus:border-yellow-500" onKeyDown={e => { if(e.key==='Enter') { askUgo(e.target.value); e.target.value=''; }}} />
                                 </div>
                             </div>
                         )}
@@ -238,7 +237,7 @@
                                     </video>
                                     {isSpeaking && <div className="absolute bottom-12 left-0 w-full flex justify-center gap-2 animate-bounce"><div className="w-2 h-10 bg-yellow-500"></div><div className="w-2 h-14 bg-yellow-500"></div><div className="w-2 h-8 bg-yellow-500"></div></div>}
                                 </div>
-                                <p className="text-[10px] font-black uppercase tracking-[0.6em] text-yellow-500 animate-pulse italic">Sara is watching the Rolexes...</p>
+                                <p className="text-[10px] font-black uppercase tracking-[0.6em] text-yellow-500 animate-pulse italic">Sara is watching the port...</p>
                             </div>
                         )}
 
@@ -254,24 +253,37 @@
                             <div className="w-full max-w-2xl glass p-12 rounded-[5rem] border-t-8 border-red-600 shadow-2xl space-y-12 text-center animate-in zoom-in-95">
                                 <h2 className="text-5xl font-black italic uppercase text-red-600 tracking-tighter">Il Caveau</h2>
                                 <div className="space-y-4">
-                                    <label className="text-[10px] font-black text-red-500 uppercase tracking-widest italic leading-none">Batteria Vocale (Incolla la Gemini Key):</label>
-                                    <input type="password" value={geminiKey} onChange={e => setGeminiKey(e.target.value)} className="w-full bg-black border border-red-900/30 rounded-2xl p-5 text-xl font-mono text-red-500 outline-none focus:border-red-600" placeholder="CHIAVE DA AI STUDIO..." />
+                                    <label className="text-[10px] font-black text-red-500 uppercase tracking-widest italic leading-none">Batteria Vocale (Incolla Gemini Key):</label>
+                                    <input type="password" value={geminiKey} onChange={e => setGeminiKey(e.target.value)} className="w-full bg-black border border-red-900/30 rounded-2xl p-5 text-xl font-mono text-red-500 outline-none focus:border-red-600" placeholder="AIzaSyA1pel..." />
                                     <button onClick={() => saveFuel(geminiKey)} className="w-full bg-red-600 py-5 rounded-3xl font-black uppercase text-[11px] text-white hover:bg-red-500 transition-all shadow-xl">Salda e Attiva</button>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4 pt-6 border-t border-white/5">
-                                    <button onClick={() => saraSpeak("Test manuale. Socio, mi senti? Zena è viva.")} className="bg-white/5 border border-white/10 py-5 rounded-2xl font-black uppercase text-[10px] text-white">Test Rapido</button>
+                                    <button onClick={() => saraSpeak("Test manuale. Socio, mi senti? Zena è viva.")} className="bg-white/5 border border-white/10 py-5 rounded-2xl font-black uppercase text-[10px] text-white">Spara Test</button>
                                     <button onClick={() => {setView('hub'); setVaultLocked(true);}} className="bg-white/5 border border-white/10 py-5 rounded-2xl font-black uppercase text-[10px] text-slate-400">Esci</button>
                                 </div>
                             </div>
                         )}
 
-                        {/* Altre visualizzazioni filtrate (Misfatti, Vaticano, Politica) rimosse per brevità ma logica preservata nella Hub */}
+                        {(view === 'misfatti' || view === 'vaticano' || view === 'politica') && (
+                            <div className="w-full max-w-4xl space-y-10 animate-in slide-in-from-bottom-6 pb-20">
+                                <h2 className="text-6xl font-black italic uppercase text-yellow-500 tracking-tighter text-center leading-none">Gogna<br/>Pubblica</h2>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                    {misfatti.length === 0 ? <p className="col-span-full text-center opacity-20 font-black uppercase text-4xl py-40">Nessun segnale da Supabase...</p> : misfatti.map(m => (
+                                        <div key={m.id} className="bg-slate-900/80 p-8 rounded-[4rem] border-l-8 border-red-600 shadow-xl group">
+                                            <p className="text-2xl font-black italic uppercase text-white mb-6 leading-tight group-hover:text-yellow-500 transition-colors">"{m.testo}"</p>
+                                            {m.foto && <img src={m.foto} className="w-full h-48 object-cover rounded-3xl grayscale group-hover:grayscale-0 transition-all shadow-lg" />}
+                                            <div className="mt-6 flex justify-between items-center"><span className="text-[9px] font-black text-red-500 uppercase tracking-widest italic">REC_{m.id}</span></div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </main>
 
                     <footer className="h-16 bg-yellow-500 flex items-center overflow-hidden z-50 shadow-2xl border-t-2 border-black/10">
-                        <div className="px-12 bg-black h-full flex items-center font-black text-xs text-yellow-500 uppercase italic tracking-[1em]">SENTINEL_11.5</div>
+                        <div className="px-12 bg-black h-full flex items-center font-black text-xs text-yellow-500 uppercase italic tracking-[1em]">SENTINEL_11.6</div>
                         <div className="flex-1 whitespace-nowrap animate-marquee flex items-center gap-48 font-black text-lg text-black italic uppercase tracking-tighter">
-                            <span>*** RADIO REPLICANTE GENOVA // MASTER HUB v11.5 KEYMASTER ***</span>
+                            <span>*** RADIO REPLICANTE GENOVA // MASTER HUB v11.6 HARDENED ***</span>
                             <span>GEMINI_KEY: {geminiKey ? 'ACTIVE' : 'MISSING'} *** SARA: READY ***</span>
                             <span>INCOLLA LA CHIAVE NEL CAVEAU // SBAM! ***</span>
                         </div>
