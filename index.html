@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>RADIO REPLICANTE | Master Sentinel v11.2</title>
+    <title>RADIO REPLICANTE | Master Sentinel v11.3</title>
 
     <!-- Engine Core -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -12,7 +12,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-    <!-- Firebase SDK -->
+    <!-- Firebase SDK (Compat Version) -->
     <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore-compat.js"></script>
@@ -30,6 +30,7 @@
         .monitor-active { border: 10px solid var(--zena-gold); box-shadow: 0 0 80px rgba(251, 191, 36, 0.2); }
         .monitor-off { border: 10px solid rgba(255,255,255,0.05); filter: brightness(0.4) grayscale(1); }
         .scanline { width: 100%; height: 100%; background: linear-gradient(to bottom, transparent 50%, rgba(6, 78, 59, 0.04) 50%); background-size: 100% 4px; position: fixed; pointer-events: none; z-index: 100; opacity: 0.5; }
+        .btn-action:active { transform: scale(0.95); }
     </style>
 </head>
 <body>
@@ -44,7 +45,7 @@
         const supabaseKey = 'sb_publishable_dcewF1z8L6FW6v8g2WxjwA_YIZcpXPU';
         const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 
-        // --- CONFIGURAZIONE FIREBASE (Usa i tuoi dati se deployato) ---
+        // --- CONFIGURAZIONE FIREBASE ---
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
             apiKey: "IL_TUO_API_KEY",
             authDomain: "replicante-b8ab5.firebaseapp.com",
@@ -65,9 +66,10 @@
             const [geminiKey, setGeminiKey] = useState('');
             const [misfatti, setMisfatti] = useState([]);
             const [isSpeaking, setIsSpeaking] = useState(false);
-            const [ugoChat, setUgoChat] = useState([{ role: 'bot', text: "Elvio, Master v11.2 Hybrid in linea. Supabase pronto, Firebase saldo. Spara." }]);
+            const [ugoChat, setUgoChat] = useState([{ role: 'bot', text: "Uè Elvio, sono tornato. Password per il Caveau: genova2026. Sputa il rospo." }]);
             const [isTyping, setIsTyping] = useState(false);
             const [videoOn, setVideoOn] = useState(false);
+            const [vaultLocked, setVaultLocked] = useState(true);
             const videoRef = useRef(null);
 
             // 1. AUTH & PERSISTENZA FUEL
@@ -81,7 +83,6 @@
                 auth.onAuthStateChanged(async (u) => {
                     if (u) {
                         setUser(u);
-                        // Carica Fuel dal Caveau (Firebase Private)
                         const docRef = db.collection('artifacts').doc(appId).collection('users').doc(u.uid).collection('settings').doc('config');
                         const snap = await docRef.get();
                         if (snap.exists) setGeminiKey(snap.data().key);
@@ -97,15 +98,10 @@
                 };
                 fetchMugugni();
 
-                const mugugniSub = supabase.channel('piazza')
-                    .on('postgres_changes', { event: '*', schema: 'public', table: 'mugugni' }, fetchMugugni)
-                    .subscribe();
-
-                const vocalSub = supabase.channel('voce')
-                    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'vocal_commands' }, p => {
-                        if (p.new.testo) saraSpeak(p.new.testo);
-                    })
-                    .subscribe();
+                const mugugniSub = supabase.channel('piazza').on('postgres_changes', { event: '*', schema: 'public', table: 'mugugni' }, fetchMugugni).subscribe();
+                const vocalSub = supabase.channel('voce').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'vocal_commands' }, p => {
+                    if (p.new.testo) saraSpeak(p.new.testo);
+                }).subscribe();
 
                 return () => { supabase.removeChannel(mugugniSub); supabase.removeChannel(vocalSub); };
             }, []);
@@ -115,6 +111,7 @@
                 setGeminiKey(key);
                 await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('settings').doc('config')
                     .set({ key, updated_at: firebase.firestore.FieldValue.serverTimestamp() });
+                alert("Fuel Saldato!");
             };
 
             const askUgo = async (msg) => {
@@ -127,7 +124,7 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             contents: [{ parts: [{ text: msg }] }],
-                            systemInstruction: { parts: [{ text: "Sei Ugo, bot genovese cinico e satirico. Rispondi rude, usa 'Belìn' e insulta l'ipocrisia dei Rolex e dei potenti." }] }
+                            systemInstruction: { parts: [{ text: "Sei Ugo, bot genovese cinico. Rispondi rude, usa 'Belìn' e insulta potenti e Rolex. Rispondi in massimo 2 righe." }] }
                         })
                     });
                     const res = await resp.json();
@@ -158,17 +155,27 @@
                 } catch (e) { setIsSpeaking(false); }
             };
 
+            const inviaMisfatto = async (testo, tag = 'GENERALE') => {
+                if (!testo) return;
+                await supabase.from('mugugni').insert([{ testo: testo.toUpperCase(), tag: tag.toUpperCase() }]);
+                alert("Segnale Inviato!");
+            };
+
             const handleAction = () => {
                 setView('hub');
                 if (videoRef.current) { videoRef.current.play(); setVideoOn(true); }
             };
 
+            const checkVaultPass = (p) => {
+                if (p === 'genova2026') setVaultLocked(false);
+            };
+
             if (view === 'landing') return (
                 <div className="min-h-screen bg-black flex items-center justify-center p-6">
                     <div className="max-w-sm w-full glass border-t-8 border-yellow-500 p-12 rounded-[5rem] text-center shadow-2xl animate-in zoom-in">
-                        <div className="w-20 h-20 bg-yellow-500 rounded-2xl mx-auto mb-8 flex items-center justify-center font-black text-4xl text-black">R</div>
-                        <h1 className="text-4xl font-black italic uppercase text-yellow-500 mb-4 tracking-tighter">SENTINEL 11.2</h1>
-                        <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-10 italic tracking-[0.5em]">Zena Hybrid Unit</p>
+                        <div className="w-20 h-20 bg-yellow-500 rounded-2xl mx-auto mb-8 flex items-center justify-center font-black text-4xl text-black shadow-lg">R</div>
+                        <h1 className="text-4xl font-black italic uppercase text-yellow-500 mb-4 tracking-tighter">SENTINEL 11.3</h1>
+                        <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-10 italic">Zena Operative Unit</p>
                         <button onClick={handleAction} className="w-full bg-yellow-500 py-6 rounded-3xl font-black uppercase text-xs text-black active:scale-95 transition-all shadow-xl">Sblocca Sistemi</button>
                     </div>
                 </div>
@@ -182,76 +189,94 @@
                             <h1 className="text-xl font-black uppercase italic tracking-tighter">Radio Replicante</h1>
                         </div>
                         <div className="flex gap-4">
-                            <span className={`text-[9px] font-black px-4 py-1.5 rounded-full border border-yellow-500/30 uppercase ${user ? 'text-yellow-500' : 'text-red-500 animate-pulse'}`}>{user ? 'AUTH_OK' : 'WAIT_AUTH'}</span>
+                            <span className={`text-[9px] font-black px-4 py-1.5 rounded-full border border-yellow-500/30 uppercase ${user ? 'text-yellow-500' : 'text-red-500'}`}>{user ? 'AUTH_OK' : 'WAIT'}</span>
                             {view !== 'hub' && <button onClick={() => setView('hub')} className="text-[10px] font-black uppercase text-yellow-500 border-b border-yellow-500/20">Moli</button>}
                         </div>
                     </header>
 
                     <main className="flex-1 overflow-y-auto p-6 flex flex-col items-center pb-24 relative z-20">
                         {view === 'hub' && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full max-w-6xl mt-8">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full max-w-6xl mt-8 animate-in fade-in">
                                 <Card title="Fatti & Misfatti" desc="La gogna via Supabase." icon="📸" color="amber" onClick={() => setView('misfatti')} />
                                 <Card title="Sara Monitor" desc="L'occhio dei carruggi." icon="📡" color="blue" onClick={() => setView('sara')} />
                                 <Card title="Ugo AI" desc="Logica genovese cinica." icon="🤖" color="slate" onClick={() => setView('ugo')} />
                                 <Card title="Molo Vaticano" desc="Mugugni religiosi." icon="⛪" color="yellow" onClick={() => setView('vaticano')} />
                                 <Card title="Palazzo Tursi" desc="Politica in mutande." icon="🏛️" color="red" onClick={() => setView('politica')} />
-                                <Card title="Caveau" desc="Fuel & Persistence." icon="🔒" color="red" onClick={() => setView('vault')} />
+                                <Card title="Caveau" desc="Fuel & Gestione." icon="🔒" color="red" onClick={() => setView('vault')} />
                             </div>
                         )}
 
                         {view === 'ugo' && (
-                            <div className="w-full max-w-xl h-[75vh] flex flex-col glass rounded-[4rem] border-2 border-white/5 overflow-hidden">
-                                <div className="flex-1 overflow-y-auto p-8 space-y-6">
+                            <div className="w-full max-w-xl h-[75vh] flex flex-col glass rounded-[4rem] border-2 border-white/5 overflow-hidden shadow-2xl">
+                                <div className="flex-1 overflow-y-auto p-8 space-y-6 custom-scrollbar">
                                     {ugoChat.map((m, i) => (
                                         <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                            <div className={`max-w-[85%] p-6 rounded-[2.5rem] text-sm font-bold italic uppercase ${m.role === 'user' ? 'bg-yellow-500 text-black' : 'bg-black/60 border border-white/10 text-white'}`}>{m.text}</div>
+                                            <div className={`max-w-[85%] p-6 rounded-[2.5rem] text-sm font-bold italic uppercase ${m.role === 'user' ? 'bg-yellow-500 text-black shadow-lg' : 'bg-black/60 border border-white/10 text-white shadow-xl'}`}>{m.text}</div>
                                         </div>
                                     ))}
-                                    {isTyping && <div className="text-[10px] font-black text-yellow-500 animate-pulse italic uppercase ml-4">Ugo mastica misfatti...</div>}
+                                    {isTyping && <div className="text-[10px] font-black text-yellow-500 animate-pulse uppercase ml-4">Ugo mastica dati...</div>}
                                 </div>
                                 <div className="p-6 bg-black/60">
-                                    <input type="text" placeholder="Sputtana un Rolex..." className="w-full bg-slate-800 rounded-3xl px-8 py-5 text-sm font-black uppercase outline-none focus:border-yellow-500" onKeyDown={e => { if(e.key==='Enter') { askUgo(e.target.value); e.target.value=''; }}} />
+                                    <input type="text" placeholder="Sputtana un Rolex..." className="w-full bg-slate-800 rounded-3xl px-8 py-5 text-sm font-black uppercase outline-none focus:border-yellow-500 placeholder:opacity-20" onKeyDown={e => { if(e.key==='Enter') { askUgo(e.target.value); e.target.value=''; }}} />
                                 </div>
                             </div>
                         )}
 
                         {view === 'sara' && (
-                            <div className="flex flex-col items-center gap-12 mt-10">
+                            <div className="flex flex-col items-center gap-12 mt-10 animate-in fade-in">
                                 <div className={`relative w-80 h-80 rounded-full overflow-hidden transition-all duration-700 ${isSpeaking ? 'monitor-active scale-105' : 'monitor-off'}`}>
                                     <video ref={videoRef} loop muted playsInline poster="sara.png" className="w-full h-full object-cover scale-110">
                                         <source src="saraaudio.mp4" type="video/mp4"/>
                                     </video>
                                     {isSpeaking && <div className="absolute bottom-12 left-0 w-full flex justify-center gap-2 animate-bounce"><div className="w-2 h-10 bg-yellow-500"></div><div className="w-2 h-14 bg-yellow-500"></div><div className="w-2 h-8 bg-yellow-500"></div></div>}
                                 </div>
-                                <p className="text-[10px] font-black uppercase tracking-[0.6em] text-yellow-500 animate-pulse italic">Sara is watching the Rolexes...</p>
+                                <p className="text-[10px] font-black uppercase tracking-[0.6em] text-yellow-500 animate-pulse italic">Sara is watching the port...</p>
+                                {!geminiKey && <p className="text-red-500 font-bold uppercase text-[9px]">⚠️ Inserire API Key nel Caveau!</p>}
                             </div>
                         )}
 
-                        {view === 'vault' && (
-                            <div className="w-full max-w-2xl glass p-12 rounded-[5rem] border-t-8 border-red-600 shadow-2xl space-y-12 text-center">
-                                <h2 className="text-5xl font-black italic uppercase text-red-600 tracking-tighter">Il Caveau</h2>
-                                <p className="text-[10px] text-slate-500 uppercase tracking-widest mt-2">Configurazione X55A-MASTER</p>
+                        {view === 'vault' && vaultLocked && (
+                            <div className="max-w-sm w-full glass p-12 rounded-[4rem] border-t-8 border-red-600 text-center shadow-2xl mt-10">
+                                <h2 className="text-3xl font-black uppercase italic text-red-600 mb-8">Area Protetta</h2>
+                                <input type="password" placeholder="PASSWORD" className="w-full bg-black border-2 border-white/10 rounded-2xl p-5 text-center text-2xl font-black text-red-500 outline-none mb-6" onKeyDown={e => { if(e.key==='Enter') checkVaultPass(e.target.value); }} />
+                                <p className="text-[9px] text-slate-500 uppercase italic">Solo per il Direttore Operativo</p>
+                            </div>
+                        )}
+
+                        {view === 'vault' && !vaultLocked && (
+                            <div className="w-full max-w-2xl glass p-12 rounded-[5rem] border-t-8 border-red-600 shadow-2xl space-y-12 text-center animate-in zoom-in-95">
+                                <h2 className="text-5xl font-black italic uppercase text-red-600 tracking-tighter leading-none">Il Caveau</h2>
                                 <div className="space-y-4">
-                                    <label className="text-[10px] font-black text-red-500 uppercase">Batteria Modulo Vocale (Gemini Key):</label>
-                                    <input type="password" value={geminiKey} onChange={e => setGeminiKey(e.target.value)} className="w-full bg-black border border-red-900/30 rounded-2xl p-5 text-xl font-mono text-red-500 outline-none" />
-                                    <button onClick={() => saveFuel(geminiKey)} className="w-full bg-red-600 py-5 rounded-3xl font-black uppercase text-[11px] text-white hover:bg-red-500 transition-all">Salda Chiave</button>
+                                    <label className="text-[10px] font-black text-red-500 uppercase">Batteria Vocale (Gemini Key):</label>
+                                    <input type="password" value={geminiKey} onChange={e => setGeminiKey(e.target.value)} className="w-full bg-black border border-red-900/30 rounded-2xl p-5 text-xl font-mono text-red-500 outline-none shadow-inner" placeholder="INCOLLA QUI..." />
+                                    <button onClick={() => saveFuel(geminiKey)} className="w-full bg-red-600 py-5 rounded-3xl font-black uppercase text-[11px] text-white hover:bg-red-500 transition-all shadow-xl">Salda Chiave</button>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4 pt-6 border-t border-white/5">
-                                    <button onClick={() => saraSpeak("Sistema ricalibrato su Supabase. Sara è pronta.")} className="bg-white/5 border border-white/10 py-5 rounded-2xl font-black uppercase text-[10px] text-white">Test Vocale</button>
-                                    <button onClick={() => setView('hub')} className="bg-white/5 border border-white/10 py-5 rounded-2xl font-black uppercase text-[10px] text-slate-400">Esci</button>
+                                    <button onClick={() => saraSpeak("Sistema pronto socio. Genova ruggisce.")} className="bg-white/5 border border-white/10 py-5 rounded-2xl font-black uppercase text-[10px] text-white">Test Vocale</button>
+                                    <button onClick={() => {setView('hub'); setVaultLocked(true);}} className="bg-white/5 border border-white/10 py-5 rounded-2xl font-black uppercase text-[10px] text-slate-400">Esci</button>
                                 </div>
                             </div>
                         )}
 
                         {(view === 'misfatti' || view === 'vaticano' || view === 'politica') && (
-                            <div className="w-full max-w-4xl space-y-10">
-                                <h2 className="text-6xl font-black italic uppercase text-yellow-500 tracking-tighter text-center">Gogna Pubblica</h2>
+                            <div className="w-full max-w-4xl space-y-12 animate-in fade-in slide-in-from-bottom-6">
+                                <div className="glass p-10 rounded-[4rem] border-t-8 border-yellow-500 shadow-2xl text-center">
+                                    <h2 className="text-5xl font-black italic uppercase text-yellow-500 mb-6 tracking-tighter">Invia Segnale</h2>
+                                    <div className="flex gap-4">
+                                        <input id="newPost" placeholder="SCRIVI IL MISFATTO..." className="flex-1 bg-black border-2 border-white/5 rounded-2xl px-6 py-4 text-xs font-black uppercase text-white outline-none focus:border-yellow-500" />
+                                        <button onClick={() => {const v=document.getElementById('newPost').value; inviaMisfatto(v, view); document.getElementById('newPost').value='';}} className="bg-yellow-500 text-black px-8 py-4 rounded-2xl font-black uppercase italic btn-action shadow-xl">Sbam</button>
+                                    </div>
+                                </div>
+
+                                <h2 className="text-6xl font-black italic uppercase text-yellow-500 tracking-tighter text-center leading-none">Gogna<br/>Pubblica</h2>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pb-20">
-                                    {misfatti.length === 0 ? <p className="col-span-full text-center opacity-20 font-black uppercase text-4xl py-40">Nessun misfatto oggi... strano.</p> : misfatti.map(m => (
+                                    {misfatti.filter(m => view === 'misfatti' || (m.tag && m.tag.toLowerCase() === view.toLowerCase())).length === 0 ?
+                                        <p className="col-span-full text-center opacity-20 font-black uppercase text-4xl py-40 leading-tight">Nessun segnale in questa stanza...<br/>Tutti santi oggi?</p>
+                                        : misfatti.filter(m => view === 'misfatti' || (m.tag && m.tag.toLowerCase() === view.toLowerCase())).map(m => (
                                         <div key={m.id} className="bg-slate-900/80 p-8 rounded-[4rem] border-l-8 border-red-600 shadow-xl relative overflow-hidden group">
                                             <p className="text-2xl font-black italic uppercase text-white mb-6 leading-tight group-hover:text-yellow-500 transition-colors">"{m.testo}"</p>
-                                            {m.foto && <img src={m.foto} className="w-full h-48 object-cover rounded-3xl grayscale hover:grayscale-0 transition-all shadow-lg" />}
-                                            <div className="mt-6 flex justify-between items-center"><span className="text-[9px] font-black text-red-500 uppercase tracking-widest italic">REC_{m.id}</span></div>
+                                            {m.foto && <img src={m.foto} className="w-full h-48 object-cover rounded-3xl grayscale group-hover:grayscale-0 transition-all shadow-lg" />}
+                                            <div className="mt-6 flex justify-between items-center"><span className="text-[9px] font-black text-red-500 uppercase tracking-widest italic">{m.tag || 'GENERALE'}</span><span className="text-[8px] text-slate-600">REC_{m.id}</span></div>
                                         </div>
                                     ))}
                                 </div>
@@ -259,12 +284,12 @@
                         )}
                     </main>
 
-                    <footer className="h-16 bg-yellow-500 flex items-center overflow-hidden z-50">
-                        <div className="px-12 bg-black h-full flex items-center font-black text-xs text-yellow-500 uppercase italic tracking-[1em]">SENTINEL_11.2</div>
+                    <footer className="h-16 bg-yellow-500 flex items-center overflow-hidden z-50 shadow-2xl border-t-2 border-black/10">
+                        <div className="px-12 bg-black h-full flex items-center font-black text-xs text-yellow-500 uppercase italic tracking-[1em]">SENTINEL_11.3</div>
                         <div className="flex-1 whitespace-nowrap animate-marquee flex items-center gap-48 font-black text-lg text-black italic uppercase tracking-tighter">
-                            <span>*** RADIO REPLICANTE GENOVA // MASTER HUB v11.2 HYBRID ***</span>
-                            <span>DATA STORE: SUPABASE *** FUEL: FIREBASE *** SARA: ONLINE ***</span>
-                            <span>ABBASSO I ROLEX // SOLO VERITÀ DAI CARRUGGI // SBAM! ***</span>
+                            <span>*** RADIO REPLICANTE GENOVA // MASTER HUB v11.3 OPERATIVE ***</span>
+                            <span>PASSWORD CAVEAU: genova2026 *** SARA: IN ASCOLTO ***</span>
+                            <span>SBAM PER OVERRIDE CORE // NO CENSURA // SOLO VERITÀ ***</span>
                         </div>
                     </footer>
 
