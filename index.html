@@ -3,31 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>RADIO REPLICANTE | Master Sentinel v13.2</title>
+    <title>RADIO REPLICANTE | Master Sentinel v15.0</title>
 
-    <!-- Engine Core -->
+    <!-- Engine Core (CDN Stabili) -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-    <!-- Firebase SDK -->
-    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore-compat.js"></script>
-
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;900&family=JetBrains+Mono:wght@700&display=swap');
-        :root { --zena-gold: #fbbf24; --bg: #010503; --serper-cyan: #06b6d4; }
-        body { background-color: var(--bg); color: #f1f5f9; font-family: 'Outfit', sans-serif; margin: 0; overflow-x: hidden; }
+        :root { --zena-gold: #fbbf24; --bg: #010503; }
+        body { background-color: var(--bg); color: #f1f5f9; font-family: 'Outfit', sans-serif; margin: 0; overflow-x: hidden; -webkit-tap-highlight-color: transparent; }
         .glass { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(40px); border: 1px solid rgba(255, 255, 255, 0.05); }
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: var(--zena-gold); border-radius: 10px; }
         @keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
         .animate-marquee { animation: marquee 40s linear infinite; }
-        .monitor-active { border: 10px solid var(--zena-gold); box-shadow: 0 0 80px rgba(251, 191, 36, 0.2); }
-        .scanline { width: 100%; height: 100%; background: linear-gradient(to bottom, transparent 50%, rgba(6, 182, 212, 0.02) 50%); background-size: 100% 4px; position: fixed; pointer-events: none; z-index: 100; opacity: 0.5; }
+        .monitor-active { border: 8px solid var(--zena-gold); box-shadow: 0 0 60px rgba(251, 191, 36, 0.2); }
+        .scanline { width: 100%; height: 100%; background: linear-gradient(to bottom, transparent 50%, rgba(251, 191, 36, 0.02) 50%); background-size: 100% 4px; position: fixed; pointer-events: none; z-index: 100; opacity: 0.5; }
         .message-in { animation: slideIn 0.3s ease-out; }
         @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
@@ -40,39 +35,28 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // --- CONFIGURAZIONE ---
-        const firebaseConfig = {
-            apiKey: "IL_TUO_API_KEY",
-            authDomain: "replicante-b8ab5.firebaseapp.com",
-            projectId: "replicante-b8ab5"
-        };
-
+        // --- SUPABASE CONFIG ---
         const supabaseUrl = 'https://cprpshkxzqvtjofjnive.supabase.co';
         const supabaseKey = 'sb_publishable_dcewF1z8L6FW6v8g2WxjwA_YIZcpXPU';
-
-        const appId = 'radio-replicante-v13';
+        const sb = window.supabase ? window.supabase.createClient(supabaseUrl, supabaseKey) : null;
 
         function App() {
             const [view, setView] = useState('landing');
-            const [user, setUser] = useState(null);
-            const [sb, setSb] = useState(null); // Supabase state
             const [keys, setKeys] = useState({
-                gemini: localStorage.getItem('rr_gemini') || '',
-                pplx: localStorage.getItem('rr_pplx') || '',
-                serper: localStorage.getItem('rr_serper') || ''
+                gemini: localStorage.getItem('rr_fuel_gemini') || '',
+                serper: localStorage.getItem('rr_fuel_serper') || ''
             });
+            const [ugoChat, setUgoChat] = useState([{ role: 'bot', text: "Elvio, v15.0 Liberty riattivata. Siamo di nuovo in onda. Incolla le chiavi nel Caveau e riprendiamoci il porto." }]);
             const [misfatti, setMisfatti] = useState([]);
             const [isSpeaking, setIsSpeaking] = useState(false);
-            const [ugoChat, setUgoChat] = useState([{ role: 'bot', text: "Elvio, v13.2 Ready. Ho ricalibrato il sensore Supabase. Se vedi i pallini verdi, il magazzino è aperto." }]);
             const [isTyping, setIsTyping] = useState(false);
             const [vaultLocked, setVaultLocked] = useState(true);
-            const [diagStatus, setDiagStatus] = useState({ auth: 'off', supa: 'off', fuel: 'off' });
+            const [diag, setDiag] = useState({ supa: 'off', fuel: 'off' });
 
-            const videoRef = useRef(null);
             const chatEndRef = useRef(null);
-
             useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [ugoChat]);
 
+            // Audio Helper PCM to WAV
             const pcmToWav = (pcmData, sampleRate) => {
                 const buffer = new ArrayBuffer(44 + pcmData.length);
                 const view = new DataView(buffer);
@@ -87,67 +71,29 @@
                 return new Blob([buffer], { type: 'audio/wav' });
             };
 
-            // 1. DIAGNOSTICA & INIZIALIZZAZIONE SICURA
+            // Diagnostica iniziale
             useEffect(() => {
-                // Inizializzazione Supabase sicura
-                try {
-                    if (window.supabase) {
-                        const client = window.supabase.createClient(supabaseUrl, supabaseKey);
-                        setSb(client);
-                        setDiagStatus(prev => ({...prev, supa: 'on'}));
-                    } else {
-                        // Riprova tra un secondo se lo script non è ancora pronto
-                        setTimeout(() => {
-                            if (window.supabase) {
-                                const client = window.supabase.createClient(supabaseUrl, supabaseKey);
-                                setSb(client);
-                                setDiagStatus(prev => ({...prev, supa: 'on'}));
-                            }
-                        }, 1000);
-                    }
-                } catch(e) { console.error("Supa Fail:", e); }
+                if (sb) setDiag(p => ({...p, supa: 'on'}));
+                if (keys.gemini && keys.serper) setDiag(p => ({...p, fuel: 'on'}));
+            }, [keys]);
 
-                // Check Fuel
-                if (keys.gemini && keys.serper) setDiagStatus(prev => ({...prev, fuel: 'on'}));
-
-                // Auth Logic
-                if (firebase.apps.length || firebaseConfig.apiKey !== "IL_TUO_API_KEY") {
-                    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-                    firebase.auth().signInAnonymously()
-                        .then(u => {
-                            setUser(u.user);
-                            setDiagStatus(prev => ({...prev, auth: 'on'}));
-                        })
-                        .catch(e => setDiagStatus(prev => ({...prev, auth: 'err'})));
-                } else {
-                    setDiagStatus(prev => ({...prev, auth: 'local'}));
-                }
-            }, []);
-
-            // 2. SYNC DATI (Supabase)
+            // Sync Misfatti
             useEffect(() => {
                 if (!sb) return;
-                const fetchMugugni = async () => {
+                const fetchData = async () => {
                     const { data } = await sb.from('mugugni').select('*').order('created_at', { ascending: false });
                     if (data) setMisfatti(data);
                 };
-                fetchMugugni();
-                const sub = sb.channel('piazza').on('postgres_changes', { event: '*', schema: 'public', table: 'mugugni' }, fetchMugugni).subscribe();
-                return () => { sb.removeChannel(sub); };
-            }, [sb]);
+                fetchData();
+                const channel = sb.channel('piazza').on('postgres_changes', { event: '*', schema: 'public', table: 'mugugni' }, fetchData).subscribe();
+                return () => sb.removeChannel(channel);
+            }, []);
 
-            const saveKeys = async (newKeys) => {
-                setKeys(newKeys);
-                localStorage.setItem('rr_gemini', newKeys.gemini);
-                localStorage.setItem('rr_pplx', newKeys.pplx);
-                localStorage.setItem('rr_serper', newKeys.serper);
-                setDiagStatus(prev => ({...prev, fuel: 'on'}));
-
-                if (user && firebase.apps.length) {
-                    firebase.firestore().collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('settings').doc('config')
-                        .set({ ...newKeys, updated_at: firebase.firestore.FieldValue.serverTimestamp() });
-                }
-                saraSpeak("Tutti i radar sono calibrati socio. Genova è sotto controllo.");
+            const saveFuel = () => {
+                localStorage.setItem('rr_fuel_gemini', keys.gemini);
+                localStorage.setItem('rr_fuel_serper', keys.serper);
+                setDiag(p => ({...p, fuel: 'on'}));
+                saraSpeak("Carburante saldato. Sono pronta Elvio.");
             };
 
             const searchWeb = async (query) => {
@@ -156,10 +102,10 @@
                     const resp = await fetch("https://google.serper.dev/search", {
                         method: "POST",
                         headers: { "X-API-KEY": keys.serper, "Content-Type": "application/json" },
-                        body: JSON.stringify({ q: query + " Genova news", gl: "it", hl: "it" })
+                        body: JSON.stringify({ q: query + " Genova news", gl: "it" })
                     });
                     const res = await resp.json();
-                    return res.organic?.slice(0, 2).map(o => `${o.title}: ${o.snippet}`).join(" | ");
+                    return res.organic?.slice(0, 2).map(o => o.snippet).join(" | ");
                 } catch(e) { return null; }
             };
 
@@ -169,15 +115,15 @@
                 setIsTyping(true);
 
                 try {
-                    const searchResults = await searchWeb(msg);
-                    const context = searchResults ? `Dati Radar: ${searchResults}` : "Nessuna notizia fresca dal porto.";
+                    const radarData = await searchWeb(msg);
+                    const context = radarData ? `RADAR WEB: ${radarData}` : "Nessun dato radar.";
 
                     const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${keys.gemini}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            contents: [{ parts: [{ text: `CONTESTO: ${context}\nUTENTE: ${msg}` }] }],
-                            systemInstruction: { parts: [{ text: "Sei Ugo, spia genovese cinica. Usa 'Belìn'. Rispondi rude basandoti sui dati. Massimo 3 righe." }] }
+                            contents: [{ parts: [{ text: `INFO: ${context}\n\nUTENTE: ${msg}` }] }],
+                            systemInstruction: { parts: [{ text: "Sei Ugo, spia genovese cinica. Usa 'Belìn'. Rispondi rude basandoti sui dati. Massimo 2 frasi." }] }
                         })
                     });
                     const res = await resp.json();
@@ -185,7 +131,7 @@
                     setUgoChat(prev => [...prev, { role: 'bot', text: txt }]);
                     saraSpeak(txt);
                 } catch (e) {
-                    setUgoChat(prev => [...prev, { role: 'bot', text: "Belìn Elvio, il segnale scotta! Incolla le chiavi nel Caveau e premi Salda." }]);
+                    setUgoChat(prev => [...prev, { role: 'bot', text: "Belìn Elvio, il segnale brucia! Controlla le chiavi nel Caveau." }]);
                 } finally { setIsTyping(false); }
             };
 
@@ -202,8 +148,7 @@
                     });
                     const res = await resp.json();
                     const audioBase = res.candidates[0].content.parts[0].inlineData.data;
-                    const mimeType = res.candidates[0].content.parts[0].inlineData.mimeType;
-                    const rate = parseInt(mimeType.split('rate=')[1]) || 24000;
+                    const rate = parseInt(res.candidates[0].content.parts[0].inlineData.mimeType.split('rate=')[1]) || 24000;
                     const binary = atob(audioBase);
                     const bytes = new Uint8Array(binary.length);
                     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
@@ -213,96 +158,94 @@
                 } catch (e) { setIsSpeaking(false); }
             };
 
-            const handleLanding = () => {
-                setView('hub');
-                if (videoRef.current) videoRef.current.play().catch(e => console.log("Video block"));
-                saraSpeak("Radio Replicante è online. Bentornato Elvio.");
-            };
-
             if (view === 'landing') return (
                 <div className="min-h-screen bg-black flex items-center justify-center p-6">
-                    <div className="max-w-sm w-full glass border-t-8 border-cyan-500 p-12 rounded-[5rem] text-center shadow-2xl animate-in zoom-in">
-                        <div className="w-20 h-20 bg-cyan-500 rounded-2xl mx-auto mb-8 flex items-center justify-center font-black text-4xl text-black shadow-lg">R</div>
-                        <h1 className="text-4xl font-black italic uppercase text-cyan-500 mb-4 tracking-tighter leading-tight">SENTINEL 13.2</h1>
-                        <p className="text-[10px] text-slate-500 uppercase font-black tracking-[0.5em] mb-10 italic">Zena Ready Unit</p>
+                    <div className="max-w-sm w-full glass border-t-8 border-yellow-500 p-12 rounded-[5rem] text-center shadow-2xl animate-in zoom-in">
+                        <div className="w-20 h-20 bg-yellow-500 rounded-2xl mx-auto mb-8 flex items-center justify-center font-black text-4xl text-black shadow-lg">R</div>
+                        <h1 className="text-4xl font-black italic uppercase text-yellow-500 mb-4 tracking-tighter">SENTINEL 15.0</h1>
+                        <p className="text-[10px] text-slate-500 uppercase font-black tracking-[0.5em] mb-10 italic">Zena Liberty Unit</p>
 
-                        <div className="flex justify-center gap-4 mb-10 text-[8px] font-black uppercase tracking-widest">
-                            <div className="flex items-center"><span className={`status-dot ${diagStatus.auth !== 'off' ? 'bg-emerald-500 shadow-[0_0_5px_#10b981]' : 'bg-red-500'}`}></span> Auth</div>
-                            <div className="flex items-center"><span className={`status-dot ${diagStatus.supa === 'on' ? 'bg-emerald-500 shadow-[0_0_5px_#10b981]' : 'bg-red-500'}`}></span> Supa</div>
-                            <div className="flex items-center"><span className={`status-dot ${diagStatus.fuel === 'on' ? 'bg-emerald-500 shadow-[0_0_5px_#10b981]' : 'bg-red-500'}`}></span> Fuel</div>
+                        <div className="flex justify-center gap-4 mb-10 text-[8px] font-black uppercase">
+                            <div className="flex items-center"><span className={`status-dot ${diag.supa === 'on' ? 'bg-emerald-500' : 'bg-red-500'}`}></span> Supa</div>
+                            <div className="flex items-center"><span className={`status-dot ${diag.fuel === 'on' ? 'bg-emerald-500' : 'bg-red-500'}`}></span> Fuel</div>
                         </div>
 
-                        <button onClick={handleLanding} className="w-full bg-cyan-600 py-6 rounded-3xl font-black uppercase text-xs text-white active:scale-95 transition-all shadow-xl hover:bg-cyan-500">Apri il Segnale</button>
+                        <button onClick={() => setView('hub')} className="w-full bg-yellow-600 py-6 rounded-3xl font-black uppercase text-xs text-white active:scale-95 transition-all shadow-xl hover:bg-yellow-500">Apri i Carruggi</button>
                     </div>
                 </div>
             );
 
             return (
-                <div className="min-h-screen bg-[#010503] text-slate-200 flex flex-col relative overflow-hidden">
-                    <header className="px-8 py-5 bg-black/90 border-b border-cyan-500/10 flex justify-between items-center z-50">
+                <div className="min-h-screen bg-[#010503] text-slate-200 flex flex-col relative">
+                    <header className="px-8 py-5 bg-black border-b border-yellow-500/10 flex justify-between items-center z-50">
                         <div className="flex items-center gap-3 cursor-pointer" onClick={() => setView('hub')}>
-                            <div className="w-10 h-10 bg-cyan-500 rounded-xl flex items-center justify-center font-black text-black shadow-lg">R</div>
-                            <h1 className="text-xl font-black uppercase italic tracking-tighter leading-none">Radio Replicante</h1>
+                            <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center font-black text-black">R</div>
+                            <h1 className="text-xl font-black uppercase italic tracking-tighter">Radio Replicante</h1>
                         </div>
-                        <div className="flex gap-4">
-                            <span className={`text-[9px] font-black px-4 py-1.5 rounded-full border border-cyan-500/30 uppercase ${diagStatus.fuel === 'on' ? 'text-cyan-400' : 'text-red-500 animate-pulse'}`}>{diagStatus.fuel === 'on' ? 'RADAR_READY' : 'NO_FUEL'}</span>
-                            {view !== 'hub' && <button onClick={() => setView('hub')} className="text-[10px] font-black uppercase text-cyan-500 border-b border-yellow-500/20">Moli</button>}
-                        </div>
+                        <span className={`text-[9px] font-black px-4 py-1.5 rounded-full border border-yellow-500/30 uppercase ${keys.gemini ? 'text-yellow-500' : 'text-red-500 animate-pulse'}`}>{keys.gemini ? 'ONLINE' : 'OFFLINE'}</span>
                     </header>
 
-                    <main className="flex-1 overflow-y-auto p-6 flex flex-col items-center pb-24 relative z-20">
+                    <main className="flex-1 overflow-y-auto p-6 flex flex-col items-center pb-24 z-20">
                         {view === 'hub' && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full max-w-6xl mt-8">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full max-w-6xl mt-8 animate-in fade-in">
                                 <Card title="Piazza Mugugni" desc="Misfatti cronaca nera." icon="😤" color="amber" onClick={() => setView('misfatti')} />
-                                <Card title="Sara Live" desc="Monitor dei vicoli." icon="📡" color="blue" onClick={() => setView('sara')} />
-                                <Card title="Ugo Radar" desc="Cervello Serper + Gemini." icon="🛰️" color="cyan" onClick={() => setView('ugo')} />
+                                <Card title="Ugo Terminal" desc="Cervello Serper + Gemini." icon="🤖" color="cyan" onClick={() => setView('ugo')} />
+                                <Card title="Caveau Core" desc="Gestione Arsenale." icon="🔒" color="red" onClick={() => setView('vault')} />
                                 <Card title="Molo Vaticano" desc="Mugugni religiosi." icon="⛪" color="yellow" onClick={() => setView('vaticano')} />
-                                <Card title="Palazzo Tursi" desc="Misfatti politici." icon="🏛️" color="red" onClick={() => setView('politica')} />
-                                <Card title="Caveau Fuel" desc="Gestione Arsenale." icon="🔒" color="red" onClick={() => setView('vault')} />
+                                <Card title="Palazzo Tursi" desc="Politica storta." icon="🏛️" color="red" onClick={() => setView('politica')} />
+                                <Card title="Sara Live" desc="Monitor dei vicoli." icon="📡" color="blue" onClick={() => setView('sara')} />
                             </div>
                         )}
 
                         {view === 'ugo' && (
-                            <div className="w-full max-w-xl h-[75vh] flex flex-col glass rounded-[4rem] border-2 border-cyan-500/10 overflow-hidden shadow-2xl">
+                            <div className="w-full max-w-xl h-[75vh] flex flex-col glass rounded-[4rem] border-2 border-white/5 overflow-hidden shadow-2xl">
                                 <div className="flex-1 overflow-y-auto p-8 space-y-6 custom-scrollbar">
                                     {ugoChat.map((m, i) => (
                                         <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} message-in`}>
-                                            <div className={`max-w-[85%] p-6 rounded-[2.5rem] text-sm font-bold italic uppercase ${m.role === 'user' ? 'bg-cyan-600 text-white shadow-lg' : 'bg-black/60 border border-cyan-500/10 text-slate-200'}`}>{m.text}</div>
+                                            <div className={`max-w-[85%] p-6 rounded-[2.5rem] text-sm font-bold italic uppercase ${m.role === 'user' ? 'bg-yellow-600 text-white shadow-lg' : 'bg-black/60 border border-white/10 text-slate-200 shadow-xl'}`}>{m.text}</div>
                                         </div>
                                     ))}
                                     <div ref={chatEndRef} />
-                                    {isTyping && <div className="text-[10px] font-black text-cyan-500 animate-pulse uppercase ml-4">Ugo interroga il web...</div>}
+                                    {isTyping && <div className="text-[10px] font-black text-yellow-500 animate-pulse ml-4 italic">Ugo interroga Genova...</div>}
                                 </div>
-                                <div className="p-6 bg-black/60">
-                                    <input type="text" placeholder="INTERROGA IL PORTO..." className="w-full bg-slate-800 rounded-3xl px-8 py-5 text-sm font-black uppercase outline-none focus:border-cyan-500 shadow-inner" onKeyDown={e => { if(e.key==='Enter') { askUgo(e.target.value); e.target.value=''; }}} />
+                                <div className="p-6 bg-black/60 border-t border-white/5">
+                                    <input type="text" placeholder="INTERROGA IL SOCIO..." className="w-full bg-slate-800 rounded-3xl px-8 py-5 text-sm font-black uppercase outline-none focus:border-yellow-500 shadow-inner" onKeyDown={e => { if(e.key==='Enter') { askUgo(e.target.value); e.target.value=''; }}} />
                                 </div>
                             </div>
                         )}
 
-                        {view === 'vault' && (
-                            <div className="w-full max-w-2xl glass p-12 rounded-[5rem] border-t-8 border-cyan-600 shadow-2xl space-y-8 text-center animate-in zoom-in-95">
-                                <h2 className="text-5xl font-black italic uppercase text-cyan-600 tracking-tighter leading-none">Il Caveau</h2>
+                        {view === 'vault' && vaultLocked && (
+                            <div className="max-w-sm w-full glass p-12 rounded-[4rem] border-t-8 border-red-600 text-center shadow-2xl mt-10">
+                                <h2 className="text-3xl font-black uppercase italic text-red-600 mb-8 tracking-tighter">Core Access</h2>
+                                <input type="password" placeholder="PASSWORD" className="w-full bg-black border-2 border-white/10 rounded-2xl p-5 text-center text-2xl font-black text-red-500 outline-none mb-6 shadow-inner" onKeyDown={e => { if(e.key==='Enter' && (e.target.value.toLowerCase().trim() === 'genova2026' || e.target.value.toLowerCase().trim() === 'sbam')) setVaultLocked(false); }} />
+                                <p className="text-[9px] text-slate-500 uppercase italic">Suggerimento: L'anno della radio</p>
+                            </div>
+                        )}
+
+                        {view === 'vault' && !vaultLocked && (
+                            <div className="w-full max-w-2xl glass p-12 rounded-[5rem] border-t-8 border-yellow-500 shadow-2xl space-y-8 text-center animate-in zoom-in-95">
+                                <h2 className="text-5xl font-black italic uppercase text-yellow-500 tracking-tighter leading-none italic">Il Caveau</h2>
                                 <div className="space-y-4 text-left">
-                                    <label className="text-[10px] font-black text-cyan-400 uppercase tracking-widest italic ml-4 leading-none">Radar Web (Serper Key):</label>
-                                    <input type="password" value={keys.serper} onChange={e => setKeys({...keys, serper: e.target.value})} className="w-full bg-black border border-cyan-900/30 rounded-2xl p-5 text-xl font-mono text-cyan-500 outline-none mb-4 shadow-inner" placeholder="Incolla qui..." />
+                                    <label className="text-[10px] font-black text-yellow-500 uppercase tracking-widest italic ml-4">Brain & Voice Gemini Key:</label>
+                                    <input type="password" value={keys.gemini} onChange={e => setKeys({...keys, gemini: e.target.value})} className="w-full bg-black border border-white/10 rounded-2xl p-5 text-xl font-mono text-yellow-500 outline-none mb-4 shadow-inner" placeholder="Incolla AIzaSy..." />
 
-                                    <label className="text-[10px] font-black text-yellow-500 uppercase tracking-widest italic ml-4 leading-none">Voce Sara & Brain (Gemini Key):</label>
-                                    <input type="password" value={keys.gemini} onChange={e => setKeys({...keys, gemini: e.target.value})} className="w-full bg-black border border-yellow-900/30 rounded-2xl p-5 text-xl font-mono text-yellow-500 outline-none shadow-inner" />
+                                    <label className="text-[10px] font-black text-cyan-400 uppercase tracking-widest italic ml-4">Radar Serper.dev Key:</label>
+                                    <input type="password" value={keys.serper} onChange={e => setKeys({...keys, serper: e.target.value})} className="w-full bg-black border border-white/10 rounded-2xl p-5 text-xl font-mono text-cyan-500 outline-none shadow-inner" placeholder="Incolla cf7b..." />
 
-                                    <button onClick={() => saveKeys(keys)} className="w-full bg-cyan-600 py-6 rounded-3xl font-black uppercase text-[11px] text-white hover:bg-cyan-500 transition-all shadow-xl mt-6">Salda Arsenale</button>
+                                    <button onClick={saveFuel} className="w-full bg-yellow-600 py-6 rounded-3xl font-black uppercase text-[11px] text-black hover:bg-yellow-500 transition-all shadow-xl mt-6 active:scale-95">Salda Arsenale</button>
                                 </div>
                                 <button onClick={() => setView('hub')} className="text-[10px] font-black uppercase text-slate-500 hover:text-white transition-colors">Esci</button>
                             </div>
                         )}
 
                         {(view === 'misfatti' || view === 'vaticano' || view === 'politica') && (
-                            <div className="w-full max-w-4xl space-y-10 animate-in slide-in-from-bottom-6 pb-20 px-4">
-                                <h2 className="text-6xl font-black italic uppercase text-cyan-500 tracking-tighter text-center leading-none italic">Piazza<br/>Mugugni</h2>
+                            <div className="w-full max-w-4xl space-y-10 pb-20 px-4">
+                                <h2 className="text-6xl font-black italic uppercase text-yellow-500 tracking-tighter text-center leading-none italic">Piazza<br/>Mugugni</h2>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                     {misfatti.length === 0 ? <p className="col-span-full text-center opacity-20 font-black uppercase text-4xl py-40 leading-tight italic">Nessun segnale da Supabase...</p> : misfatti.map(m => (
-                                        <div key={m.id} className="bg-slate-900/80 p-8 rounded-[4rem] border-l-8 border-red-600 shadow-xl group hover:bg-slate-900 transition-all">
-                                            <p className="text-2xl font-black italic uppercase text-white mb-6 leading-tight group-hover:text-cyan-500 transition-colors">"{m.testo}"</p>
-                                            <div className="mt-6 flex justify-between items-center"><span className="text-[9px] font-black text-cyan-500 uppercase tracking-widest italic leading-none">REC_{m.id}</span></div>
+                                        <div key={m.id} className="bg-slate-900/80 p-8 rounded-[4rem] border-l-8 border-yellow-500 shadow-xl group hover:bg-slate-900 transition-all">
+                                            <p className="text-2xl font-black italic uppercase text-white mb-6 leading-tight group-hover:text-yellow-500 transition-colors">"{m.testo}"</p>
+                                            <div className="mt-6 flex justify-between items-center"><span className="text-[9px] font-black text-yellow-600 uppercase tracking-widest italic leading-none">REC_{m.id}</span></div>
                                         </div>
                                     ))}
                                 </div>
@@ -310,12 +253,12 @@
                         )}
                     </main>
 
-                    <footer className="h-16 bg-cyan-600 flex items-center overflow-hidden z-50 shadow-2xl border-t-2 border-black/10">
-                        <div className="px-12 bg-black h-full flex items-center font-black text-xs text-cyan-500 uppercase italic tracking-[1em]">SENTINEL_13.2</div>
+                    <footer className="h-16 bg-yellow-500 flex items-center overflow-hidden z-50 border-t-2 border-black/10">
+                        <div className="px-12 bg-black h-full flex items-center font-black text-xs text-yellow-500 uppercase italic tracking-[1em]">SENTINEL_15.0</div>
                         <div className="flex-1 whitespace-nowrap animate-marquee flex items-center gap-48 font-black text-lg text-black italic uppercase tracking-tighter">
-                            <span>*** RADIO REPLICANTE GENOVA // MASTER HUB v13.2 READY ***</span>
-                            <span>RADAR WEB: {keys.serper ? 'ONLINE' : 'OFF'} *** SUPA: {diagStatus.supa} *** FUEL: {diagStatus.fuel} ***</span>
-                            <span>DATABASE OPERATIVO // SBAM! ***</span>
+                            <span>*** RADIO REPLICANTE GENOVA // MASTER HUB v15.0 LIBERTY ***</span>
+                            <span>RADAR WEB: {keys.serper ? 'ACTIVE' : 'OFF'} *** SARA: READY *** UGO: ONLINE ***</span>
+                            <span>INCOLLA LE TUE CHIAVI NEL CAVEAU // SBAM! ***</span>
                         </div>
                     </footer>
                 </div>
